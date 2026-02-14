@@ -13,9 +13,29 @@ from .db import (
     list_ride_analyses_chronological,
     get_progress_summary,
     list_progress_summaries_chronological,
+    USE_POSTGRES,
+    close_connection,
 )
 
 s = get_settings()
+
+# Database placeholder helper - PostgreSQL uses %s, SQLite uses ?
+def _sql(query: str) -> str:
+    """Convert SQLite-style ? placeholders to %s for PostgreSQL."""
+    if USE_POSTGRES:
+        return query.replace('?', '%s')
+    return query
+
+# Helper to execute queries (PostgreSQL needs cursor, SQLite doesn't)
+def _execute(con, query: str, params=None):
+    """Execute a query with proper handling for both SQLite and PostgreSQL."""
+    if USE_POSTGRES:
+        from psycopg2.extras import RealDictCursor
+        cursor = con.cursor(cursor_factory=RealDictCursor)
+        cursor.execute(query, params)
+        return cursor
+    else:
+        return con.execute(query, params)
 
 # Basic logging setup (plays nicely with uvicorn; avoids logging secrets)
 logging.basicConfig(
@@ -41,9 +61,15 @@ frontend_url = os.environ.get("FRONTEND_URL")
 if frontend_url:
     allowed_origins.append(frontend_url)
 
+# Allow all Cloud Run frontend URLs (*.run.app domains)
+# This is safe since Cloud Run domains are GCP-controlled
+import re
+allow_origin_regex = r"https://.*\.run\.app"
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=allowed_origins,
+    allow_origin_regex=allow_origin_regex,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -75,8 +101,8 @@ def receive(evt: Event):
     try:
         # Store updates as JSON (not Python repr)
         updates_json = json.dumps(evt.updates or {})
-        con.execute(
-            "INSERT INTO webhook_events(received_at, object_id, owner_id, aspect_type, object_type, subscription_id, updates_json) VALUES (?,?,?,?,?,?,?)",
+        _execute(con,
+            _sql("INSERT INTO webhook_events(received_at, object_id, owner_id, aspect_type, object_type, subscription_id, updates_json) VALUES (?,?,?,?,?,?,?)"),
             (int(time.time()), evt.object_id, evt.owner_id, evt.aspect_type, evt.object_type, evt.subscription_id, updates_json),
         )
         con.commit()
@@ -86,7 +112,7 @@ def receive(evt: Event):
         log.exception("Failed to enqueue webhook event (object_id=%s)", evt.object_id)
         raise
     finally:
-        con.close()
+        close_connection(con)
 
 @app.get("/strava/webhook")
 async def verify(request: Request):
@@ -110,6 +136,101 @@ async def verify(request: Request):
 
     log.info("Webhook verify succeeded")
     return {"hub.challenge": challenge}
+
+
+@app.post("/api/backfill")
+def backfill_activities():
+    """
+    Fetch historical activities from Strava and queue ride activities for processing.
+    Also resets any stuck 'processing' events back to 'queued'.
+    """
+    from .strava_client import StravaClient
+    from .config import get_settings
+
+    settings = get_settings()
+    client = StravaClient(settings.client_id, settings.client_secret)
+
+    con = connect(s.db_path)
+    try:
+        # 1. Reset stuck 'processing' events to 'queued'
+        _execute(con, _sql("UPDATE webhook_events SET status='queued' WHERE status='processing'"))
+        con.commit()
+
+        # 2. Get the first athlete's OAuth token
+        cursor = _execute(con, "SELECT * FROM tokens LIMIT 1")
+        tok = cursor.fetchone()
+        if not tok:
+            raise HTTPException(status_code=400, detail="No OAuth tokens found. Authenticate first.")
+
+        athlete_id = tok["athlete_id"]
+        access_token = tok["access_token"]
+        refresh_token = tok["refresh_token"]
+        expires_at = tok["expires_at"]
+
+        # Refresh token if expired
+        now_ts = int(time.time())
+        if expires_at <= now_ts + 60:
+            new_tokens = client.refresh_access_token(refresh_token)
+            access_token = new_tokens["access_token"]
+            # Update stored tokens
+            if USE_POSTGRES:
+                _execute(con,
+                    """INSERT INTO tokens(athlete_id, access_token, refresh_token, expires_at)
+                       VALUES (%s,%s,%s,%s)
+                       ON CONFLICT(athlete_id) DO UPDATE SET
+                         access_token=EXCLUDED.access_token,
+                         refresh_token=EXCLUDED.refresh_token,
+                         expires_at=EXCLUDED.expires_at""",
+                    (athlete_id, new_tokens["access_token"], new_tokens["refresh_token"], new_tokens["expires_at"]),
+                )
+            else:
+                _execute(con,
+                    "INSERT OR REPLACE INTO tokens(athlete_id, access_token, refresh_token, expires_at) VALUES (?,?,?,?)",
+                    (athlete_id, new_tokens["access_token"], new_tokens["refresh_token"], new_tokens["expires_at"]),
+                )
+            con.commit()
+
+        # 3. Fetch historical activities from Strava
+        activities = client.list_athlete_activities(access_token, per_page=100, max_pages=20)
+
+        # 4. Get existing activity IDs already queued/done
+        cursor = _execute(con, "SELECT DISTINCT object_id FROM webhook_events")
+        existing_ids = {row["object_id"] for row in cursor.fetchall()}
+
+        # 5. Queue new ride activities
+        ride_types = {"Ride", "VirtualRide", "EBikeRide"}
+        queued_count = 0
+        skipped_count = 0
+        now = int(time.time())
+
+        for act in activities:
+            activity_id = act.get("id")
+            sport_type = act.get("sport_type") or act.get("type")
+
+            if sport_type not in ride_types:
+                skipped_count += 1
+                continue
+
+            if activity_id in existing_ids:
+                skipped_count += 1
+                continue
+
+            _execute(con,
+                _sql("INSERT INTO webhook_events(received_at, object_id, owner_id, aspect_type, object_type, subscription_id, updates_json) VALUES (?,?,?,?,?,?,?)"),
+                (now, activity_id, athlete_id, "create", "activity", 0, "{}"),
+            )
+            queued_count += 1
+
+        con.commit()
+        log.info("Backfill complete: queued=%d skipped=%d total_fetched=%d", queued_count, skipped_count, len(activities))
+        return {
+            "ok": True,
+            "total_fetched": len(activities),
+            "queued": queued_count,
+            "skipped": skipped_count,
+        }
+    finally:
+        close_connection(con)
 
 
 @app.get("/api/reports")
@@ -158,7 +279,7 @@ def list_reports():
         items.sort(key=lambda x: x["created_at"] or 0, reverse=True)
         return {"items": items}
     finally:
-        con.close()
+        close_connection(con)
 
 
 @app.get("/api/reports/{kind}/{activity_id}")
@@ -195,4 +316,4 @@ def get_report(kind: str, activity_id: int):
             }
         raise HTTPException(status_code=400, detail="Invalid kind (expected 'ride' or 'progress')")
     finally:
-        con.close()
+        close_connection(con)

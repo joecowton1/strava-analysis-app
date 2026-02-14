@@ -35,3 +35,19 @@ class StravaClient:
             token,
             params={"keys": "time,watts,heartrate,cadence,velocity_smooth,altitude", "key_by_type": True},
         )
+
+    def list_athlete_activities(self, token: str, per_page: int = 50, max_pages: int = 10) -> list[dict]:
+        """Fetch all athlete activities (paginated). Returns list of activity summaries."""
+        all_activities = []
+        for page in range(1, max_pages + 1):
+            activities = self._request(
+                f"{STRAVA_API}/athlete/activities",
+                token,
+                params={"per_page": per_page, "page": page},
+            )
+            if not activities:
+                break
+            all_activities.extend(activities)
+            if len(activities) < per_page:
+                break
+        return all_activities

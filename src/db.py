@@ -58,7 +58,7 @@ def init_db(con) -> None:
         # PostgreSQL schema
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS tokens (
-              athlete_id INTEGER PRIMARY KEY,
+              athlete_id BIGINT PRIMARY KEY,
               access_token TEXT NOT NULL,
               refresh_token TEXT NOT NULL,
               expires_at BIGINT NOT NULL
@@ -70,9 +70,9 @@ def init_db(con) -> None:
               id SERIAL PRIMARY KEY,
               received_at BIGINT NOT NULL,
               subscription_id INTEGER,
-              owner_id INTEGER,
+              owner_id BIGINT,
               object_type TEXT,
-              object_id INTEGER,
+              object_id BIGINT,
               aspect_type TEXT,
               event_time BIGINT,
               updates_json TEXT,
@@ -85,7 +85,7 @@ def init_db(con) -> None:
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS activities (
               activity_id BIGINT PRIMARY KEY,
-              athlete_id INTEGER,
+              athlete_id BIGINT,
               raw_json TEXT,
               updated_at BIGINT NOT NULL
             )
