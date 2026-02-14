@@ -573,3 +573,88 @@ button {
 .modalBody::-webkit-scrollbar-thumb:hover {
   background: rgba(255, 255, 255, 0.16);
 }
+
+/* ── Login page ── */
+.loginPage {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100vh;
+  background: radial-gradient(
+    ellipse 1200px 600px at 30% -5%,
+    #151f4a 0%,
+    var(--bg) 70%
+  );
+}
+.loginCard {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 16px;
+  padding: 48px 40px;
+  border-radius: 20px;
+  border: 1px solid var(--border);
+  background: var(--panel);
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.4);
+  max-width: 400px;
+  width: 90vw;
+  text-align: center;
+}
+.loginLogo {
+  font-size: 24px;
+  font-weight: 800;
+  letter-spacing: -0.03em;
+}
+.loginSubtitle {
+  color: var(--muted);
+  font-size: 14px;
+  margin-bottom: 8px;
+}
+.loginError {
+  width: 100%;
+  text-align: left;
+}
+.stravaBtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 28px;
+  border-radius: 12px;
+  background: #fc4c02;
+  color: #fff;
+  font-weight: 600;
+  font-size: 15px;
+  text-decoration: none;
+  transition: background 0.15s, transform 0.1s;
+  margin-top: 8px;
+}
+.stravaBtn:hover {
+  background: #e04400;
+  transform: translateY(-1px);
+}
+.stravaBtn:active {
+  transform: translateY(0);
+}
+
+/* ── Top bar auth elements ── */
+.userName {
+  color: var(--muted);
+  font-size: 13px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 140px;
+}
+.logoutBtn {
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--muted);
+  padding: 5px 12px;
+  border-radius: 8px;
+  font-size: 12px;
+  font-weight: 500;
+  transition: background 0.12s, color 0.12s;
+}
+.logoutBtn:hover {
+  background: rgba(255, 255, 255, 0.12);
+  color: var(--text);
+}

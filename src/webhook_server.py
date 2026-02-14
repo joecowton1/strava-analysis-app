@@ -1,10 +1,15 @@
 import time
 import json
 import logging
-from contextlib import contextmanager
+import os
 from pathlib import Path
+from urllib.parse import urlencode
+
+import jwt
+import requests as http_requests
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import RedirectResponse, JSONResponse
 from pydantic import BaseModel
 from .config import get_settings
 from .db import (
@@ -14,81 +19,175 @@ from .db import (
     list_ride_analyses_chronological,
     get_progress_summary,
     list_progress_summaries_chronological,
+    upsert_tokens,
+    get_tokens,
+    is_athlete_allowed,
     USE_POSTGRES,
     close_connection,
 )
 
 s = get_settings()
 
+# ── JWT Configuration ──────────────────────────────────────────────────────────
+JWT_SECRET = os.environ.get("JWT_SECRET", "change-me-in-production")
+JWT_ALGORITHM = "HS256"
+JWT_EXPIRY_SECONDS = 30 * 24 * 60 * 60  # 30 days
+AUTH_COOKIE_NAME = "strava_session"
+
+STRAVA_OAUTH_URL = "https://www.strava.com/oauth/authorize"
+STRAVA_TOKEN_URL = "https://www.strava.com/oauth/token"
+
+# Where to redirect after successful OAuth (frontend URL)
+FRONTEND_URL = os.environ.get("FRONTEND_URL", "http://localhost:5173")
+
 # Database placeholder helper - PostgreSQL uses %s, SQLite uses ?
 def _sql(query: str) -> str:
-    """Convert SQLite-style ? placeholders to %s for PostgreSQL."""
     if USE_POSTGRES:
         return query.replace('?', '%s')
     return query
 
 # Helper to execute queries (PostgreSQL needs cursor, SQLite doesn't)
-@contextmanager
 def _execute(con, query: str, params=None):
-    """Execute a query, yielding a cursor that is auto-closed afterwards.
-
-    Usage:
-        with _execute(con, "SELECT ...") as cur:
-            row = cur.fetchone()
-    """
     if USE_POSTGRES:
         from psycopg2.extras import RealDictCursor
         cursor = con.cursor(cursor_factory=RealDictCursor)
-        try:
-            cursor.execute(query, params)
-            yield cursor
-        finally:
-            cursor.close()
+        cursor.execute(query, params)
+        return cursor
     else:
-        yield con.execute(query, params)
+        return con.execute(query, params)
 
-def _execute_write(con, query: str, params=None):
-    """Execute a write query, closing the cursor immediately (no result needed)."""
-    with _execute(con, query, params):
-        pass
-
-# Basic logging setup (plays nicely with uvicorn; avoids logging secrets)
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s %(levelname)s %(name)s - %(message)s",
-)
+# Basic logging setup
+logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s - %(message)s")
 log = logging.getLogger("strava.webhook_server")
 log.info("Webhook server starting (db_path=%s)", str(Path(s.db_path).resolve()))
 
-# Initialize database (only needed once at startup)
+# Initialize database
 init_db(connect(s.db_path))
 
 app = FastAPI()
 
-# CORS for local frontend dev (Vite defaults to :5173) and production
-import os
-allowed_origins = [
-    "http://localhost:5173",
-    "http://127.0.0.1:5173",
-]
-# Add production frontend URL from environment variable
-frontend_url = os.environ.get("FRONTEND_URL")
-if frontend_url:
-    allowed_origins.append(frontend_url)
-
-# Allow all Cloud Run frontend URLs (*.run.app domains)
-# This is safe since Cloud Run domains are GCP-controlled
-import re
-allow_origin_regex = r"https://.*\.run\.app"
+# CORS
+allowed_origins = ["http://localhost:5173", "http://127.0.0.1:5173"]
+if FRONTEND_URL and FRONTEND_URL not in allowed_origins:
+    allowed_origins.append(FRONTEND_URL)
 
 app.add_middleware(
     CORSMiddleware,
     allow_origins=allowed_origins,
-    allow_origin_regex=allow_origin_regex,
+    allow_origin_regex=r"https://.*\.run\.app",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+# ── JWT helpers ────────────────────────────────────────────────────────────────
+
+def _create_jwt(athlete_id: int, name: str | None = None) -> str:
+    return jwt.encode(
+        {"athlete_id": athlete_id, "name": name, "exp": int(time.time()) + JWT_EXPIRY_SECONDS, "iat": int(time.time())},
+        JWT_SECRET, algorithm=JWT_ALGORITHM,
+    )
+
+def _decode_jwt(token: str) -> dict | None:
+    try:
+        return jwt.decode(token, JWT_SECRET, algorithms=[JWT_ALGORITHM])
+    except (jwt.ExpiredSignatureError, jwt.InvalidTokenError):
+        return None
+
+def get_current_athlete(request: Request) -> int:
+    token = request.cookies.get(AUTH_COOKIE_NAME)
+    if not token:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    payload = _decode_jwt(token)
+    if not payload or "athlete_id" not in payload:
+        raise HTTPException(status_code=401, detail="Invalid or expired session")
+    return int(payload["athlete_id"])
+
+def _set_auth_cookie(response, token: str):
+    response.set_cookie(
+        key=AUTH_COOKIE_NAME, value=token, httponly=True, secure=True,
+        samesite="none", max_age=JWT_EXPIRY_SECONDS, path="/",
+    )
+
+def _get_callback_url(request: Request) -> str:
+    base = str(request.base_url).rstrip("/")
+    if request.headers.get("x-forwarded-proto") == "https" and base.startswith("http://"):
+        base = "https://" + base[len("http://"):]
+    return base + "/auth/callback"
+
+
+# ── Auth endpoints ─────────────────────────────────────────────────────────────
+
+@app.get("/auth/strava")
+def auth_strava(request: Request):
+    callback_url = _get_callback_url(request)
+    params = {
+        "client_id": s.client_id,
+        "redirect_uri": callback_url,
+        "response_type": "code",
+        "approval_prompt": "auto",
+        "scope": "activity:read_all",
+    }
+    return RedirectResponse(f"{STRAVA_OAUTH_URL}?{urlencode(params)}")
+
+
+@app.get("/auth/callback")
+def auth_callback(request: Request, code: str = "", error: str | None = None):
+    if error or not code:
+        return RedirectResponse(f"{FRONTEND_URL}?auth_error=denied")
+
+    callback_url = _get_callback_url(request)
+
+    try:
+        r = http_requests.post(STRAVA_TOKEN_URL, data={
+            "client_id": s.client_id, "client_secret": s.client_secret,
+            "code": code, "grant_type": "authorization_code",
+        }, timeout=30)
+        r.raise_for_status()
+        tok = r.json()
+    except Exception:
+        log.exception("Failed to exchange OAuth code")
+        return RedirectResponse(f"{FRONTEND_URL}?auth_error=exchange_failed")
+
+    athlete_id = tok["athlete"]["id"]
+    athlete_name = f"{tok['athlete'].get('firstname', '')} {tok['athlete'].get('lastname', '')}".strip() or None
+
+    con = connect(s.db_path)
+    try:
+        if not is_athlete_allowed(con, athlete_id):
+            log.warning("Athlete %s (%s) not in allowed list", athlete_id, athlete_name)
+            return RedirectResponse(f"{FRONTEND_URL}?auth_error=not_allowed")
+        upsert_tokens(con, athlete_id, tok["access_token"], tok["refresh_token"], tok["expires_at"])
+        log.info("OAuth complete for athlete %s (%s)", athlete_id, athlete_name)
+    finally:
+        close_connection(con)
+
+    token = _create_jwt(athlete_id, athlete_name)
+    response = RedirectResponse(FRONTEND_URL)
+    _set_auth_cookie(response, token)
+    return response
+
+
+@app.get("/auth/me")
+def auth_me(request: Request):
+    token = request.cookies.get(AUTH_COOKIE_NAME)
+    if not token:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    payload = _decode_jwt(token)
+    if not payload or "athlete_id" not in payload:
+        raise HTTPException(status_code=401, detail="Invalid or expired session")
+    return {"athlete_id": payload["athlete_id"], "name": payload.get("name")}
+
+
+@app.post("/auth/logout")
+def auth_logout():
+    response = JSONResponse({"ok": True})
+    response.delete_cookie(AUTH_COOKIE_NAME, path="/")
+    return response
+
+
+# ── Strava webhook endpoints (no auth - called by Strava) ─────────────────────
 
 class Event(BaseModel):
     aspect_type: str
@@ -99,24 +198,13 @@ class Event(BaseModel):
     subscription_id: int
     updates: dict = {}
 
-# legacy simple verification removed — use the async verify(request: Request) handler below
-
 @app.post("/strava/webhook")
 def receive(evt: Event):
-    log.info(
-        "Webhook event received (subscription_id=%s owner_id=%s object_type=%s object_id=%s aspect_type=%s)",
-        evt.subscription_id,
-        evt.owner_id,
-        evt.object_type,
-        evt.object_id,
-        evt.aspect_type,
-    )
-    # Create a new connection for this request (required for thread safety)
+    log.info("Webhook event received (owner_id=%s object_id=%s aspect_type=%s)", evt.owner_id, evt.object_id, evt.aspect_type)
     con = connect(s.db_path)
     try:
-        # Store updates as JSON (not Python repr)
         updates_json = json.dumps(evt.updates or {})
-        _execute_write(con,
+        _execute(con,
             _sql("INSERT INTO webhook_events(received_at, object_id, owner_id, aspect_type, object_type, subscription_id, updates_json) VALUES (?,?,?,?,?,?,?)"),
             (int(time.time()), evt.object_id, evt.owner_id, evt.aspect_type, evt.object_type, evt.subscription_id, updates_json),
         )
@@ -134,162 +222,88 @@ async def verify(request: Request):
     received = (request.query_params.get("hub.verify_token") or "").strip()
     challenge = request.query_params.get("hub.challenge")
     expected = (s.verify_token or "").strip()
-
-    log.info(
-        "Webhook verify request received (remote=%s verify_token_present=%s)",
-        request.client.host if request.client else None,
-        bool(received),
-    )
-
     if received != expected:
-        log.warning(
-            "Webhook verify failed (remote=%s received=%s)",
-            request.client.host if request.client else None,
-            received,
-        )
         raise HTTPException(status_code=403, detail="Forbidden")
-
-    log.info("Webhook verify succeeded")
     return {"hub.challenge": challenge}
 
 
-@app.post("/api/backfill")
-def backfill_activities():
-    """
-    Fetch historical activities from Strava and queue ride activities for processing.
-    Also resets any stuck 'processing' events back to 'queued'.
-    """
-    from .strava_client import StravaClient
-    from .config import get_settings
+# ── Authenticated API endpoints ────────────────────────────────────────────────
 
-    settings = get_settings()
-    client = StravaClient(settings.client_id, settings.client_secret)
+@app.post("/api/backfill")
+def backfill_activities(request: Request):
+    athlete_id = get_current_athlete(request)
+
+    from .strava_client import StravaClient
+    client = StravaClient(s.client_id, s.client_secret)
 
     con = connect(s.db_path)
     try:
-        # 1. Reset stuck 'processing' events to 'queued'
-        _execute_write(con, _sql("UPDATE webhook_events SET status='queued' WHERE status='processing'"))
+        _execute(con, _sql("UPDATE webhook_events SET status='queued' WHERE status='processing' AND owner_id=?"), (athlete_id,))
         con.commit()
 
-        # 2. Get the first athlete's OAuth token
-        with _execute(con, "SELECT * FROM tokens LIMIT 1") as cursor:
-            tok = cursor.fetchone()
+        tok = get_tokens(con, athlete_id)
         if not tok:
-            raise HTTPException(status_code=400, detail="No OAuth tokens found. Authenticate first.")
+            raise HTTPException(status_code=400, detail="No OAuth tokens found for this athlete.")
 
-        athlete_id = tok["athlete_id"]
         access_token = tok["access_token"]
-        refresh_token = tok["refresh_token"]
-        expires_at = tok["expires_at"]
-
-        # Refresh token if expired
-        now_ts = int(time.time())
-        if expires_at <= now_ts + 60:
-            new_tokens = client.refresh_access_token(refresh_token)
+        if tok["expires_at"] <= int(time.time()) + 60:
+            new_tokens = client.refresh_access_token(tok["refresh_token"])
             access_token = new_tokens["access_token"]
-            # Update stored tokens
-            if USE_POSTGRES:
-                _execute_write(con,
-                    """INSERT INTO tokens(athlete_id, access_token, refresh_token, expires_at)
-                       VALUES (%s,%s,%s,%s)
-                       ON CONFLICT(athlete_id) DO UPDATE SET
-                         access_token=EXCLUDED.access_token,
-                         refresh_token=EXCLUDED.refresh_token,
-                         expires_at=EXCLUDED.expires_at""",
-                    (athlete_id, new_tokens["access_token"], new_tokens["refresh_token"], new_tokens["expires_at"]),
-                )
-            else:
-                _execute_write(con,
-                    "INSERT OR REPLACE INTO tokens(athlete_id, access_token, refresh_token, expires_at) VALUES (?,?,?,?)",
-                    (athlete_id, new_tokens["access_token"], new_tokens["refresh_token"], new_tokens["expires_at"]),
-                )
-            con.commit()
+            upsert_tokens(con, athlete_id, new_tokens["access_token"], new_tokens["refresh_token"], new_tokens["expires_at"])
 
-        # 3. Fetch historical activities from Strava
         activities = client.list_athlete_activities(access_token, per_page=100, max_pages=20)
 
-        # 4. Get existing activity IDs already queued/done
-        with _execute(con, "SELECT DISTINCT object_id FROM webhook_events") as cursor:
-            existing_ids = {row["object_id"] for row in cursor.fetchall()}
+        cursor = _execute(con, _sql("SELECT DISTINCT object_id FROM webhook_events WHERE owner_id=?"), (athlete_id,))
+        existing_ids = {row["object_id"] for row in cursor.fetchall()}
 
-        # 5. Queue new ride activities
         ride_types = {"Ride", "VirtualRide", "EBikeRide"}
         queued_count = 0
         skipped_count = 0
         now = int(time.time())
 
         for act in activities:
-            activity_id = act.get("id")
+            act_id = act.get("id")
             sport_type = act.get("sport_type") or act.get("type")
-
-            if sport_type not in ride_types:
+            if sport_type not in ride_types or act_id in existing_ids:
                 skipped_count += 1
                 continue
-
-            if activity_id in existing_ids:
-                skipped_count += 1
-                continue
-
-            _execute_write(con,
+            _execute(con,
                 _sql("INSERT INTO webhook_events(received_at, object_id, owner_id, aspect_type, object_type, subscription_id, updates_json) VALUES (?,?,?,?,?,?,?)"),
-                (now, activity_id, athlete_id, "create", "activity", 0, "{}"),
+                (now, act_id, athlete_id, "create", "activity", 0, "{}"),
             )
             queued_count += 1
 
         con.commit()
-        log.info("Backfill complete: queued=%d skipped=%d total_fetched=%d", queued_count, skipped_count, len(activities))
-        return {
-            "ok": True,
-            "total_fetched": len(activities),
-            "queued": queued_count,
-            "skipped": skipped_count,
-        }
+        log.info("Backfill for athlete %s: queued=%d skipped=%d total=%d", athlete_id, queued_count, skipped_count, len(activities))
+        return {"ok": True, "total_fetched": len(activities), "queued": queued_count, "skipped": skipped_count}
     finally:
         close_connection(con)
 
 
 @app.get("/api/reports")
-def list_reports():
-    """
-    List available reports (ride analyses + progress summaries) newest-first.
-    """
+def list_reports(request: Request):
+    athlete_id = get_current_athlete(request)
     con = connect(s.db_path)
     try:
-        rides = list_ride_analyses_chronological(con)
-        progress = list_progress_summaries_chronological(con)
+        rides = list_ride_analyses_chronological(con, athlete_id=athlete_id)
+        progress = list_progress_summaries_chronological(con, athlete_id=athlete_id)
 
         items = []
         for r in rides:
             act = r.get("activity") or {}
-            items.append(
-                {
-                    "kind": "ride",
-                    "activity_id": r["activity_id"],
-                    "created_at": r["created_at"],
-                    "model": r.get("model"),
-                    "prompt_version": r.get("prompt_version"),
-                    "name": act.get("name"),
-                    "start_date": act.get("start_date"),
-                    "sport_type": act.get("sport_type"),
-                }
-            )
+            items.append({
+                "kind": "ride", "activity_id": r["activity_id"], "created_at": r["created_at"],
+                "model": r.get("model"), "prompt_version": r.get("prompt_version"),
+                "name": act.get("name"), "start_date": act.get("start_date"), "sport_type": act.get("sport_type"),
+            })
         for p in progress:
-            # Progress summaries should have a stable, date-based title (not the last ride name).
             created_at = int(p.get("created_at") or 0)
             date_str = time.strftime("%d/%m/%Y", time.localtime(created_at)) if created_at else ""
-            title = f"Progress - {date_str}".strip()
-            items.append(
-                {
-                    "kind": "progress",
-                    "activity_id": p["activity_id"],
-                    "created_at": p["created_at"],
-                    "model": p.get("model"),
-                    "prompt_version": p.get("prompt_version"),
-                    "name": title or "Progress",
-                    "start_date": None,
-                    "sport_type": None,
-                }
-            )
+            items.append({
+                "kind": "progress", "activity_id": p["activity_id"], "created_at": p["created_at"],
+                "model": p.get("model"), "prompt_version": p.get("prompt_version"),
+                "name": f"Progress - {date_str}".strip() or "Progress", "start_date": None, "sport_type": None,
+            })
 
         items.sort(key=lambda x: x["created_at"] or 0, reverse=True)
         return {"items": items}
@@ -298,37 +312,22 @@ def list_reports():
 
 
 @app.get("/api/reports/{kind}/{activity_id}")
-def get_report(kind: str, activity_id: int):
-    """
-    Fetch a single report's markdown.
-    kind: 'ride' or 'progress'
-    """
+def get_report(kind: str, activity_id: int, request: Request):
+    athlete_id = get_current_athlete(request)
     con = connect(s.db_path)
     try:
         if kind == "ride":
-            r = get_ride_analysis(con, activity_id)
+            r = get_ride_analysis(con, activity_id, athlete_id=athlete_id)
             if not r:
                 raise HTTPException(status_code=404, detail="Ride report not found")
-            return {
-                "kind": "ride",
-                "activity_id": r["activity_id"],
-                "created_at": r["created_at"],
-                "model": r.get("model"),
-                "prompt_version": r.get("prompt_version"),
-                "markdown": r.get("narrative") or "",
-            }
+            return {"kind": "ride", "activity_id": r["activity_id"], "created_at": r["created_at"],
+                    "model": r.get("model"), "prompt_version": r.get("prompt_version"), "markdown": r.get("narrative") or ""}
         if kind == "progress":
-            p = get_progress_summary(con, activity_id)
+            p = get_progress_summary(con, activity_id, athlete_id=athlete_id)
             if not p:
                 raise HTTPException(status_code=404, detail="Progress report not found")
-            return {
-                "kind": "progress",
-                "activity_id": p["activity_id"],
-                "created_at": p["created_at"],
-                "model": p.get("model"),
-                "prompt_version": p.get("prompt_version"),
-                "markdown": p.get("summary") or "",
-            }
+            return {"kind": "progress", "activity_id": p["activity_id"], "created_at": p["created_at"],
+                    "model": p.get("model"), "prompt_version": p.get("prompt_version"), "markdown": p.get("summary") or ""}
         raise HTTPException(status_code=400, detail="Invalid kind (expected 'ride' or 'progress')")
     finally:
         close_connection(con)

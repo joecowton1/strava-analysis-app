@@ -2,11 +2,15 @@ import { useEffect, useMemo, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import {
+  fetchMe,
   fetchReport,
   fetchReportList,
+  getLoginUrl,
+  logout,
   type ReportDetailResponse,
   type ReportListItem,
   type ReportKind,
+  type User,
 } from "../api";
 
 function fmtTs(ts: number) {
@@ -103,7 +107,45 @@ function ProgressCard({
   );
 }
 
+function LoginPage() {
+  // Check for auth errors in URL
+  const params = new URLSearchParams(window.location.search);
+  const authError = params.get("auth_error");
+
+  return (
+    <div className="loginPage">
+      <div className="loginCard">
+        <div className="loginLogo">Strava Analysis</div>
+        <div className="loginSubtitle">
+          AI-powered ride analysis and progress tracking
+        </div>
+
+        {authError === "not_allowed" && (
+          <div className="error loginError">
+            Your Strava account is not on the approved list. Contact the admin to
+            get access.
+          </div>
+        )}
+        {authError && authError !== "not_allowed" && (
+          <div className="error loginError">
+            Authentication failed. Please try again.
+          </div>
+        )}
+
+        <a href={getLoginUrl()} className="stravaBtn">
+          <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor">
+            <path d="M15.387 17.944l-2.089-4.116h-3.065L15.387 24l5.15-10.172h-3.066m-7.008-5.599l2.836 5.598h4.172L10.463 0l-7 13.828h4.169" />
+          </svg>
+          Connect with Strava
+        </a>
+      </div>
+    </div>
+  );
+}
+
 export function App() {
+  const [user, setUser] = useState<User | null>(null);
+  const [authChecked, setAuthChecked] = useState(false);
   const [items, setItems] = useState<ReportListItem[]>([]);
   const [selected, setSelected] = useState<ReportListItem | null>(null);
   const [detail, setDetail] = useState<ReportDetailResponse | null>(null);
@@ -112,7 +154,17 @@ export function App() {
   const [loadingList, setLoadingList] = useState(false);
   const [loadingDetail, setLoadingDetail] = useState(false);
 
+  // Check auth on mount
   useEffect(() => {
+    fetchMe().then((u) => {
+      setUser(u);
+      setAuthChecked(true);
+    });
+  }, []);
+
+  // Load reports once authenticated
+  useEffect(() => {
+    if (!user) return;
     (async () => {
       setLoadingList(true);
       setError(null);
@@ -125,7 +177,7 @@ export function App() {
         setLoadingList(false);
       }
     })();
-  }, []);
+  }, [user]);
 
   useEffect(() => {
     (async () => {
@@ -188,6 +240,28 @@ export function App() {
     setDetail(null);
   };
 
+  const handleLogout = async () => {
+    await logout();
+    setUser(null);
+    setItems([]);
+  };
+
+  // Show nothing until auth check completes
+  if (!authChecked) {
+    return (
+      <div className="shell">
+        <div className="loadingBar">
+          <div className="loadingBarInner" />
+        </div>
+      </div>
+    );
+  }
+
+  // Show login page if not authenticated
+  if (!user) {
+    return <LoginPage />;
+  }
+
   return (
     <div className="shell">
       {/* Top bar */}
@@ -212,6 +286,11 @@ export function App() {
           <span className="stat">
             <span className="statNum">{progress.length}</span> summaries
           </span>
+          <span className="statSep" />
+          <span className="userName">{user.name || `Athlete ${user.athlete_id}`}</span>
+          <button className="logoutBtn" onClick={handleLogout}>
+            Log out
+          </button>
         </div>
       </header>
 

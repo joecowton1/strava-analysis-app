@@ -258,7 +258,8 @@ while True:
                     analysis["metrics"],
                     analysis["narrative"],
                     model=used_model,
-                    prompt_version=analysis.get("prompt_version", "fred_v3")
+                    prompt_version=analysis.get("prompt_version", "fred_v3"),
+                    athlete_id=ev["owner_id"],
                 )
                 print(f"✓ Analysis complete for {ev['object_id']}", flush=True)
                 
@@ -320,7 +321,7 @@ while True:
                 # Second OpenAI call: summarize progress across all reports (chronological)
                 if PROGRESS_SUMMARY_ENABLED and summarize_progress:
                     try:
-                        all_analyses = list_ride_analyses_chronological(con)
+                        all_analyses = list_ride_analyses_chronological(con, athlete_id=ev["owner_id"])
                         progress = summarize_progress(all_analyses)
                         used_ps_model = progress.get("model") or s.openai_model
                         print(f"✓ Progress summary model used: {used_ps_model}", flush=True)
@@ -330,6 +331,7 @@ while True:
                             progress["summary_md"],
                             model=used_ps_model,
                             prompt_version=progress.get("prompt_version", "progress_v1"),
+                            athlete_id=ev["owner_id"],
                         )
 
                         ps_version = progress.get("prompt_version", "progress_v1")
