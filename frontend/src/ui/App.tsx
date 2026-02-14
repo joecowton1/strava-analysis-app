@@ -51,6 +51,16 @@ function kindLabel(kind: ReportKind) {
   return kind === "ride" ? "Ride" : "Progress";
 }
 
+function fmtDist(m?: number | null) {
+  if (m == null) return null;
+  return (m / 1000).toFixed(1) + " km";
+}
+
+function fmtElev(m?: number | null) {
+  if (m == null) return null;
+  return Math.round(m) + " m";
+}
+
 function RideCard({
   item,
   onClick,
@@ -60,6 +70,8 @@ function RideCard({
 }) {
   const date = fmtDate(item.start_date);
   const time = fmtTime(item.start_date);
+  const dist = fmtDist(item.distance);
+  const elev = fmtElev(item.total_elevation_gain);
 
   return (
     <button className="card" onClick={onClick}>
@@ -77,10 +89,19 @@ function RideCard({
           </span>
         )}
       </div>
-      <div className="cardFooter">
-        <span className="mono cardModel">{item.model ?? ""}</span>
-        <span className="mono cardPrompt">{item.prompt_version ?? ""}</span>
-      </div>
+      {(dist || elev) && (
+        <div className="cardStats">
+          {dist && <span className="cardStat">{dist}</span>}
+          {elev && (
+            <span className="cardStat">
+              <svg className="cardStatIcon" viewBox="0 0 16 16" width="12" height="12" fill="currentColor">
+                <path d="M1 14L6 4l3 5 2-2 4 7H1z" />
+              </svg>
+              {elev}
+            </span>
+          )}
+        </div>
+      )}
     </button>
   );
 }

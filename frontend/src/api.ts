@@ -9,6 +9,8 @@ export type ReportListItem = {
   name?: string | null;
   start_date?: string | null;
   sport_type?: string | null;
+  distance?: number | null;
+  total_elevation_gain?: number | null;
 };
 
 export type ReportListResponse = { items: ReportListItem[] };

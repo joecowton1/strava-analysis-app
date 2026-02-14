@@ -313,6 +313,7 @@ def list_reports(request: Request):
                 "kind": "ride", "activity_id": r["activity_id"], "created_at": r["created_at"],
                 "model": r.get("model"), "prompt_version": r.get("prompt_version"),
                 "name": act.get("name"), "start_date": act.get("start_date"), "sport_type": act.get("sport_type"),
+                "distance": act.get("distance"), "total_elevation_gain": act.get("total_elevation_gain"),
             })
         for p in progress:
             created_at = int(p.get("created_at") or 0)
