@@ -46,15 +46,22 @@ def _sql(query: str) -> str:
         return query.replace('?', '%s')
     return query
 
-# Helper to execute queries (PostgreSQL needs cursor, SQLite doesn't)
+# Helper to execute queries (PostgreSQL needs cursor, SQLite doesn't).
+# Used as a context manager so PostgreSQL cursors are always closed.
+from contextlib import contextmanager
+
+@contextmanager
 def _execute(con, query: str, params=None):
     if USE_POSTGRES:
         from psycopg2.extras import RealDictCursor
         cursor = con.cursor(cursor_factory=RealDictCursor)
-        cursor.execute(query, params)
-        return cursor
+        try:
+            cursor.execute(query, params)
+            yield cursor
+        finally:
+            cursor.close()
     else:
-        return con.execute(query, params)
+        yield con.execute(query, params or ())
 
 # Basic logging setup
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s - %(message)s")
@@ -204,10 +211,11 @@ def receive(evt: Event):
     con = connect(s.db_path)
     try:
         updates_json = json.dumps(evt.updates or {})
-        _execute(con,
+        with _execute(con,
             _sql("INSERT INTO webhook_events(received_at, object_id, owner_id, aspect_type, object_type, subscription_id, updates_json) VALUES (?,?,?,?,?,?,?)"),
             (int(time.time()), evt.object_id, evt.owner_id, evt.aspect_type, evt.object_type, evt.subscription_id, updates_json),
-        )
+        ):
+            pass
         con.commit()
         log.info("Webhook event queued (object_id=%s)", evt.object_id)
         return {"ok": True}
@@ -238,7 +246,8 @@ def backfill_activities(request: Request):
 
     con = connect(s.db_path)
     try:
-        _execute(con, _sql("UPDATE webhook_events SET status='queued' WHERE status='processing' AND owner_id=?"), (athlete_id,))
+        with _execute(con, _sql("UPDATE webhook_events SET status='queued' WHERE status='processing' AND owner_id=?"), (athlete_id,)):
+            pass
         con.commit()
 
         tok = get_tokens(con, athlete_id)
@@ -253,8 +262,8 @@ def backfill_activities(request: Request):
 
         activities = client.list_athlete_activities(access_token, per_page=100, max_pages=20)
 
-        cursor = _execute(con, _sql("SELECT DISTINCT object_id FROM webhook_events WHERE owner_id=?"), (athlete_id,))
-        existing_ids = {row["object_id"] for row in cursor.fetchall()}
+        with _execute(con, _sql("SELECT DISTINCT object_id FROM webhook_events WHERE owner_id=?"), (athlete_id,)) as cur:
+            existing_ids = {row["object_id"] for row in cur.fetchall()}
 
         ride_types = {"Ride", "VirtualRide", "EBikeRide"}
         queued_count = 0
@@ -267,10 +276,11 @@ def backfill_activities(request: Request):
             if sport_type not in ride_types or act_id in existing_ids:
                 skipped_count += 1
                 continue
-            _execute(con,
+            with _execute(con,
                 _sql("INSERT INTO webhook_events(received_at, object_id, owner_id, aspect_type, object_type, subscription_id, updates_json) VALUES (?,?,?,?,?,?,?)"),
                 (now, act_id, athlete_id, "create", "activity", 0, "{}"),
-            )
+            ):
+                pass
             queued_count += 1
 
         con.commit()
