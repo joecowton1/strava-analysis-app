@@ -1,107 +1,211 @@
-# Strava Webhook Application
+# Strava Ride Analysis Application
 
-A Python application that receives Strava webhook events and stores activity data locally in a SQLite database.
+An AI-powered Strava analysis app that automatically analyzes your rides and generates detailed performance reports. Deployed on Google Cloud Platform with automated webhooks.
+
+## 🌐 Live Deployment
+
+**Production URLs:**
+- **Frontend**: https://strava-frontend-ftxt43xj5a-nw.a.run.app
+- **Backend API**: https://strava-backend-ftxt43xj5a-nw.a.run.app
+- **Region**: europe-west2 (London)
+
+**Services:**
+- **Backend** - FastAPI webhook server + Reports API
+- **Worker** - Background processor for AI analysis
+- **Frontend** - React SPA for viewing reports
 
 ## Overview
 
-This application consists of three main components:
+This application automatically processes your Strava rides through an AI-powered analysis pipeline:
 
-1. **Webhook Server** - FastAPI server that receives webhook events from Strava
-2. **Worker** - Background process that processes queued webhook events and fetches activity data
-3. **OAuth Tools** - Scripts for obtaining and managing Strava OAuth tokens
+1. **Strava sends webhook** when you complete a ride
+2. **Backend receives** and queues the event
+3. **Worker processes** the ride data (power, heart rate, cadence)
+4. **OpenAI generates** detailed performance analysis
+5. **Frontend displays** beautiful markdown reports
+
+### Architecture
+
+```
+Strava → Backend (webhooks) → Database → Worker (AI) → Reports
+                                  ↑
+                              Frontend ←──────────────┘
+```
 
 ## Prerequisites
 
-- Python 3.10 or higher (3.12 recommended)
-- Strava API credentials (Client ID, Client Secret, Verify Token)
-- A publicly accessible URL for webhook callbacks (e.g., using ngrok)
+- Python 3.10+ (3.12 recommended)
+- Node.js 18+ (for frontend development)
+- Strava API credentials ([Get them here](https://www.strava.com/settings/api))
+- OpenAI API key ([Get it here](https://platform.openai.com/api-keys))
+- Google Cloud Platform account (for production deployment)
 
-## Installation
+## Quick Start (Local Development)
 
-1. Clone this repository
-
-2. Install dependencies:
-   ```bash
-   pip install -r requirements.txt
-   ```
-
-3. Create a `.env` file in the project root with the following variables:
-   ```env
-   STRAVA_CLIENT_ID=your_client_id
-   STRAVA_CLIENT_SECRET=your_client_secret
-   STRAVA_VERIFY_TOKEN=your_verify_token
-   STRAVA_CALLBACK_URL=https://your-ngrok-url.ngrok.io/strava/webhook
-   STRAVA_REDIRECT_URI=http://localhost:8787/callback
-   DB_PATH=./db/strava.sqlite
-   ```
-
-## Running the Application
-
-### 1. Obtain OAuth Tokens
-
-First, you need to obtain OAuth tokens for the Strava athlete:
+### 1. Clone and Install
 
 ```bash
-    python -m src.oauth_local
+git clone <your-repo>
+cd strava-v2
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
 ```
 
-This will:
-- Open your browser to authorize the application
-- Start a local server on port 8787 (or the port specified in `STRAVA_REDIRECT_URI`)
-- Store the tokens in the database
+### 2. Configure Environment
 
-### 2. Create a Webhook Subscription
+Create a `.env` file:
 
-Create a webhook subscription with Strava:
+```env
+STRAVA_CLIENT_ID=your_client_id
+STRAVA_CLIENT_SECRET=your_client_secret
+STRAVA_VERIFY_TOKEN=your_verify_token
+STRAVA_CALLBACK_URL=https://your-ngrok-url.ngrok.io/strava/webhook
+STRAVA_REDIRECT_URI=http://localhost:8787/callback
+DB_PATH=./db/strava.sqlite
+OPENAI_API_KEY=your_openai_key
+REPORT_OUTPUT_DIR=./reports
+```
+
+### 3. Obtain OAuth Tokens
+
+```bash
+python -m src.oauth_local
+```
+
+This opens your browser to authorize with Strava and stores tokens locally.
+
+### 4. Start Services
+
+**Terminal 1 - Backend:**
+```bash
+uvicorn src.webhook_server:app --host 0.0.0.0 --port 8000
+```
+
+**Terminal 2 - Worker:**
+```bash
+python -m src.worker
+```
+
+**Terminal 3 - Frontend:**
+```bash
+cd frontend
+npm install
+npm run dev
+```
+
+### 5. Expose with ngrok (for webhooks)
+
+```bash
+ngrok http 8000
+```
+
+Update `STRAVA_CALLBACK_URL` in `.env` with the ngrok HTTPS URL.
+
+### 6. Create Webhook Subscription
 
 ```bash
 python -m src.subscriptions create
 ```
 
-This registers your callback URL with Strava. You can also:
-- List existing subscriptions: `python -m src.subscriptions list`
-- Delete a subscription: `python -m src.subscriptions delete <subscription_id>`
+Now go for a ride! Your app will automatically analyze it.
 
-**Note:** Your `STRAVA_CALLBACK_URL` must be publicly accessible. Use a tool like [ngrok](https://ngrok.com/) to expose your local server:
-```bash
-ngrok http 8000
-```
-Then update `STRAVA_CALLBACK_URL` in your `.env` file to use the ngrok HTTPS URL.
+## 🚀 Deploying to Google Cloud Platform
 
-### 3. Start the Webhook Server
+### Prerequisites
 
-Run the FastAPI webhook server:
+1. **GCP Account** - [Create one](https://cloud.google.com/)
+2. **gcloud CLI** - [Install it](https://cloud.google.com/sdk/docs/install)
+3. **Docker** - [Install it](https://docs.docker.com/get-docker/)
+
+### Quick Deploy
 
 ```bash
-uvicorn src.webhook_server:app --host 0.0.0.0 --port 8000
+# 1. Authenticate
+gcloud auth login
+
+# 2. Set your project
+export GCP_PROJECT_ID="your-project-id"
+export GCP_REGION="europe-west2"  # or your preferred region
+
+# 3. Deploy everything
+./deploy.sh
+
+# 4. Configure environment variables
+./setup-env-vars.sh
+
+# 5. Create webhook subscription
+source .venv/bin/activate
+python -m src.subscriptions create
+
+# 6. Redeploy frontend with backend URL
+./redeploy-frontend.sh
 ```
 
-The server will listen for webhook events at `/strava/webhook`.
+### What Gets Deployed
 
-### 3b. Reports API (for frontend)
+The deploy script creates three Cloud Run services:
 
-The webhook server also exposes a small read-only API for viewing reports:
+| Service | URL | Description |
+|---------|-----|-------------|
+| `strava-backend` | Auto-generated | FastAPI server for webhooks & API |
+| `strava-worker` | Internal only | Background AI processor |
+| `strava-frontend` | Auto-generated | React web interface |
 
-- `GET /api/reports`: list available reports (ride analyses + progress summaries)
-- `GET /api/reports/{kind}/{activity_id}`: fetch markdown for a single report (`kind` is `ride` or `progress`)
+### Managing Environment Variables
 
-### 4. Start the Worker
-
-In a separate terminal, start the worker to process webhook events:
+All services need these environment variables:
 
 ```bash
-python -m src.worker
+STRAVA_CLIENT_ID=195315
+STRAVA_CLIENT_SECRET=your_secret
+STRAVA_VERIFY_TOKEN=your_token
+OPENAI_API_KEY=your_key
 ```
 
-The worker continuously polls the database for queued events and processes them by fetching activity data from Strava.
+**Update them:**
+```bash
+./setup-env-vars.sh  # Reads from .env and updates Cloud Run
+```
 
-## Frontend (React) - Viewing Reports
+**Or manually in console:**
+https://console.cloud.google.com/run
 
-A basic React frontend lives in `frontend/`. It renders markdown reports by calling the backend API.
+### Webhook Configuration
 
-### Run the frontend (dev)
+Your webhook callback URL will be:
+```
+https://YOUR-BACKEND-URL.run.app/strava/webhook
+```
 
-In a separate terminal:
+The deploy script automatically configures this when you run `./setup-env-vars.sh`.
+
+### Database Options
+
+#### SQLite (Default)
+- ⚠️ **Ephemeral** - Data lost on restart
+- ✅ Free
+- ✅ Easy setup
+- Use for: Testing, development
+
+#### Cloud SQL PostgreSQL (Recommended)
+- ✅ **Persistent** - Data survives restarts
+- ✅ Automatic backups
+- 💰 ~$7-10/month
+- Use for: Production
+
+**Migrate to Cloud SQL:**
+```bash
+./quick-migrate-cloudsql.sh
+```
+
+See [CLOUDSQL_MIGRATION.md](./CLOUDSQL_MIGRATION.md) for details.
+
+## Frontend Development
+
+The frontend is a React + TypeScript SPA that displays ride analyses.
+
+### Local Development
 
 ```bash
 cd frontend
@@ -109,129 +213,243 @@ npm install
 npm run dev
 ```
 
-Then open the Vite dev server (defaults to `http://localhost:5173`).
+Visit http://localhost:5173
 
-### Configure API base URL
-
-By default the frontend calls `http://localhost:8000`. To override:
+### Build for Production
 
 ```bash
-export VITE_API_BASE_URL=http://localhost:8000
+cd frontend
+VITE_API_BASE_URL=https://your-backend-url.run.app npm run build
 ```
 
-## Updating OAuth Tokens
+The built files go to `frontend/dist/`.
 
-OAuth access tokens expire after 6 hours. When tokens expire, you have two options:
+### Frontend Deployment
 
-### Option 1: Re-authenticate (Recommended for manual updates)
+The frontend is automatically deployed by `./deploy.sh`, but if you need to redeploy just the frontend:
 
-Simply re-run the OAuth flow:
+```bash
+./redeploy-frontend.sh
+```
+
+This rebuilds the frontend with the correct backend URL baked in.
+
+## API Endpoints
+
+### Backend API
+
+**Webhooks:**
+- `POST /strava/webhook` - Receive Strava webhooks
+- `GET /strava/webhook` - Webhook verification
+
+**Reports API:**
+- `GET /api/reports` - List all reports
+- `GET /api/reports/{kind}/{activity_id}` - Get specific report
+  - `kind`: `ride` or `progress`
+
+### Example Response
+
+```json
+{
+  "items": [
+    {
+      "kind": "ride",
+      "activity_id": 12345,
+      "created_at": 1706789012,
+      "name": "Morning Ride",
+      "start_date": "2024-02-01T08:00:00Z",
+      "sport_type": "Ride"
+    }
+  ]
+}
+```
+
+## Webhook Subscription Management
+
+**List subscriptions:**
+```bash
+python -m src.subscriptions list
+```
+
+**Create subscription:**
+```bash
+python -m src.subscriptions create
+```
+
+**Delete subscription:**
+```bash
+python -m src.subscriptions delete <subscription_id>
+```
+
+## OAuth Token Management
+
+OAuth tokens expire after 6 hours and need to be refreshed.
+
+### Manual Refresh (Local)
 
 ```bash
 python -m src.oauth_local
 ```
 
-This will update the tokens in the database for the authenticated athlete.
-
-### Option 2: Refresh Tokens Programmatically
-
-You can refresh tokens programmatically using the `refresh_access_token` method from `StravaClient`. This is useful for automated token management or when you want to refresh tokens without user interaction.
-
-#### Using the Helper Script
-
-A helper script is available to refresh tokens:
+### Programmatic Refresh
 
 ```bash
 python -m src.refresh_tokens [athlete_id]
 ```
 
-If no `athlete_id` is provided, the script will refresh tokens for all athletes in the database.
+### In Production
 
-#### Manual Implementation
+The worker automatically refreshes tokens when they expire during event processing.
 
-You can also create your own script using the following approach:
+## Database Schema
 
-```python
-from src.config import get_settings
-from src.db import connect, get_tokens, upsert_tokens
-from src.strava_client import StravaClient
+The application uses these tables:
 
-s = get_settings()
-con = connect(s.db_path)
-client = StravaClient(s.client_id, s.client_secret)
-
-# Get athlete_id from database or specify directly
-athlete_id = YOUR_ATHLETE_ID
-
-tokens = get_tokens(con, athlete_id)
-if tokens:
-    new_tokens = client.refresh_access_token(tokens["refresh_token"])
-    upsert_tokens(
-        con,
-        athlete_id,
-        new_tokens["access_token"],
-        new_tokens["refresh_token"],
-        new_tokens["expires_at"]
-    )
-    print(f"✅ Tokens refreshed for athlete_id={athlete_id}")
-else:
-    print("No tokens found for this athlete")
-```
-
-#### Finding Athlete IDs
-
-To find athlete IDs in your database:
-
-```python
-from src.db import connect
-
-con = connect("./db/strava.sqlite")
-rows = con.execute("SELECT athlete_id FROM tokens").fetchall()
-for row in rows:
-    print(f"Athlete ID: {row['athlete_id']}")
-```
-
-**Note:** Refresh tokens can also expire if they haven't been used for 6 months. In this case, you'll need to re-authenticate using Option 1.
-
-## Database
-
-The application uses SQLite to store:
-- **tokens** - OAuth tokens for athletes
-- **webhook_events** - Received webhook events (status: queued, processing, done, failed)
-- **activities** - Activity data fetched from Strava
-- **activity_streams** - Stream data (power, heart rate, cadence, etc.) for activities
-
-The database file location is specified by `DB_PATH` in your `.env` file (default: `./db/strava.sqlite`).
+- **`tokens`** - OAuth credentials for athletes
+- **`webhook_events`** - Queued events from Strava
+- **`activities`** - Raw activity data
+- **`activity_streams`** - Power/HR/cadence data
+- **`ride_analysis`** - AI-generated analyses
+- **`progress_summaries`** - Progress over time
 
 ## Project Structure
 
 ```
 strava-v2/
-├── src/
-│   ├── __init__.py
-│   ├── config.py          # Configuration management
-│   ├── db.py              # Database functions
-│   ├── oauth_local.py     # OAuth token acquisition
-│   ├── refresh_tokens.py  # Programmatic token refresh script
-│   ├── strava_client.py   # Strava API client
-│   ├── subscriptions.py   # Webhook subscription management
-│   ├── webhook_server.py  # FastAPI webhook server
-│   └── worker.py          # Event processing worker
-├── db/                    # Database directory (created automatically)
-├── requirements.txt       # Python dependencies
-└── README.md             # This file
+├── src/                        # Python backend
+│   ├── config.py              # Settings management
+│   ├── db.py                  # Database (SQLite/PostgreSQL)
+│   ├── webhook_server.py      # FastAPI backend
+│   ├── worker.py              # Background processor
+│   ├── ride_analyzer.py       # OpenAI integration
+│   ├── oauth_local.py         # OAuth flow
+│   └── subscriptions.py       # Webhook management
+├── frontend/                   # React frontend
+│   ├── src/
+│   │   ├── main.tsx           # Entry point
+│   │   ├── api.ts             # Backend client
+│   │   └── ui/App.tsx         # Main component
+│   └── Dockerfile             # Frontend container
+├── deploy.sh                   # Deploy to GCP
+├── setup-env-vars.sh          # Configure Cloud Run
+├── redeploy-frontend.sh       # Redeploy frontend only
+├── setup-cloudsql.sh          # Create Cloud SQL instance
+├── quick-migrate-cloudsql.sh  # Migrate to PostgreSQL
+├── Dockerfile.backend         # Backend container
+├── Dockerfile.worker          # Worker container
+├── requirements.txt           # Python dependencies
+└── .env                       # Local configuration
 ```
 
-## Deploying to Production
+## Deployment Scripts
 
-For deploying to Google Cloud Platform (GCP), see:
-- **[Quick Start Guide](./QUICKSTART_GCP.md)** - Deploy in 5 minutes
-- **[Full Deployment Guide](./DEPLOYMENT.md)** - Detailed deployment documentation
+| Script | Purpose |
+|--------|---------|
+| `deploy.sh` | Deploy all services to GCP |
+| `setup-env-vars.sh` | Update environment variables |
+| `redeploy-frontend.sh` | Rebuild & deploy frontend only |
+| `setup-cloudsql.sh` | Create PostgreSQL database |
+| `quick-migrate-cloudsql.sh` | Migrate to Cloud SQL |
+
+## Monitoring & Logs
+
+### View Logs
+
+```bash
+# Backend logs
+gcloud run services logs read strava-backend --region europe-west2 --limit 50
+
+# Worker logs  
+gcloud run services logs read strava-worker --region europe-west2 --limit 50
+
+# Frontend logs
+gcloud run services logs read strava-frontend --region europe-west2 --limit 50
+```
+
+### Check Service Status
+
+```bash
+# List all services
+gcloud run services list --region europe-west2
+
+# Describe specific service
+gcloud run services describe strava-backend --region europe-west2
+```
+
+## Cost Estimates
+
+### Cloud Run (Pay-per-use)
+
+- **Backend**: ~$0-5/month (generous free tier)
+- **Worker**: ~$0-3/month
+- **Frontend**: ~$0-2/month
+
+**Free tier**: 2M requests/month, 360K GB-seconds/month
+
+### Cloud SQL (Optional)
+
+- **db-f1-micro**: ~$7-10/month
+- Includes: 10GB storage, automatic backups
+
+### OpenAI
+
+- **GPT-4o-mini**: ~$0.15-0.60 per analysis (150 tokens in, 4000 tokens out)
+- 10 rides/month ≈ $1.50-6.00
+
+**Total estimated cost**: $10-25/month for active use
 
 ## Troubleshooting
 
-- **"No OAuth token for athlete"** - Run `python -m src.oauth_local` to obtain tokens
-- **Webhook verification fails** - Ensure `STRAVA_VERIFY_TOKEN` matches what you configured in Strava
-- **Connection errors** - Verify your `STRAVA_CALLBACK_URL` is publicly accessible and pointing to the correct endpoint
-- **Token expired errors** - Refresh or re-obtain tokens using the methods described above
+### Deployment Issues
+
+**"gcloud: command not found"**
+```bash
+./fix-gcloud.sh  # Configures PATH and Python
+```
+
+**"Container failed to start"**
+- Check logs: `gcloud run services logs read SERVICE_NAME --region europe-west2`
+- Verify environment variables are set
+- Run `./setup-env-vars.sh`
+
+**"Frontend shows localhost"**
+```bash
+./redeploy-frontend.sh  # Rebuilds with correct backend URL
+```
+
+### Webhook Issues
+
+**"Webhook verification failed"**
+- Verify `STRAVA_VERIFY_TOKEN` matches in both .env and Strava settings
+- Check backend logs for verification requests
+
+**"No events processing"**
+- Check worker is running: `gcloud run services describe strava-worker`
+- View worker logs for errors
+- Verify webhook subscription exists: `python -m src.subscriptions list`
+
+### Database Issues
+
+**"No OAuth token for athlete"**
+```bash
+python -m src.oauth_local
+```
+
+**"Data disappeared after deployment"**
+- SQLite is ephemeral on Cloud Run
+- Migrate to Cloud SQL: `./quick-migrate-cloudsql.sh`
+
+## Documentation
+
+- **[QUICKSTART_GCP.md](./QUICKSTART_GCP.md)** - 5-minute GCP deployment
+- **[DEPLOYMENT.md](./DEPLOYMENT.md)** - Comprehensive deployment guide
+- **[CLOUDSQL_MIGRATION.md](./CLOUDSQL_MIGRATION.md)** - PostgreSQL migration
+
+## License
+
+MIT
+
+## Support
+
+Questions? Open an issue or check the troubleshooting section above.
 

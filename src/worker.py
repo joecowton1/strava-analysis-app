@@ -2,6 +2,7 @@ import os
 import time
 import json
 import re
+import threading
 from pathlib import Path
 import requests
 from .config import get_settings
@@ -13,8 +14,39 @@ from .db import (
     upsert_tokens,
     list_ride_analyses_chronological,
     save_progress_summary,
+    USE_POSTGRES,
 )
 from .strava_client import StravaClient
+
+# Database placeholder helper - PostgreSQL uses %s, SQLite uses ?
+def _sql(query: str) -> str:
+    """Convert SQLite-style ? placeholders to %s for PostgreSQL."""
+    if USE_POSTGRES:
+        return query.replace('?', '%s')
+    return query
+
+# Simple HTTP server for Cloud Run health checks
+from http.server import HTTPServer, BaseHTTPRequestHandler
+
+class HealthCheckHandler(BaseHTTPRequestHandler):
+    def do_GET(self):
+        """Health check endpoint for Cloud Run."""
+        self.send_response(200)
+        self.send_header('Content-type', 'text/plain')
+        self.end_headers()
+        self.wfile.write(b'Worker running')
+    
+    def log_message(self, format, *args):
+        """Suppress HTTP server logs."""
+        pass
+
+def start_health_server():
+    """Start HTTP server in background thread for Cloud Run health checks."""
+    port = int(os.environ.get('PORT', 8080))
+    server = HTTPServer(('0.0.0.0', port), HealthCheckHandler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    print(f"Health check server listening on port {port}", flush=True)
 
 WORKER_VERSION = "dual_output_md_pdf_v1"
 
@@ -77,6 +109,10 @@ print(f"WORKER_VERSION: {WORKER_VERSION}", flush=True)
 print(f"DB_PATH: {Path(s.db_path).resolve()}", flush=True)
 print(f"REPORT_OUTPUT_DIR: {Path(s.report_output_dir).resolve()}", flush=True)
 print(f"PDF_OUTPUT_DIR: {Path(s.pdf_output_dir).resolve()}", flush=True)
+
+# Start health check HTTP server for Cloud Run
+start_health_server()
+
 print("Worker running", flush=True)
 
 _last_heartbeat = 0.0
@@ -87,9 +123,9 @@ def _heartbeat_if_needed() -> None:
     if now - _last_heartbeat < HEARTBEAT_SECONDS:
         return
     _last_heartbeat = now
-    queued = con.execute("SELECT COUNT(*) AS c FROM webhook_events WHERE status='queued'").fetchone()["c"]
-    failed = con.execute("SELECT COUNT(*) AS c FROM webhook_events WHERE status='failed'").fetchone()["c"]
-    processing = con.execute("SELECT COUNT(*) AS c FROM webhook_events WHERE status='processing'").fetchone()["c"]
+    queued = con.execute(_sql("SELECT COUNT(*) AS c FROM webhook_events WHERE status='queued'")).fetchone()["c"]
+    failed = con.execute(_sql("SELECT COUNT(*) AS c FROM webhook_events WHERE status='failed'")).fetchone()["c"]
+    processing = con.execute(_sql("SELECT COUNT(*) AS c FROM webhook_events WHERE status='processing'")).fetchone()["c"]
     # Always print occasionally so it's obvious the worker is alive.
     print(f"[heartbeat] queued={queued} processing={processing} failed={failed}", flush=True)
 
@@ -105,7 +141,7 @@ def _refresh_access_token_for_athlete(athlete_id: int, refresh_token: str) -> st
     return new_tokens["access_token"]
 
 while True:
-    ev = con.execute("SELECT * FROM webhook_events WHERE status='queued' LIMIT 1").fetchone()
+    ev = con.execute(_sql("SELECT * FROM webhook_events WHERE status='queued' LIMIT 1")).fetchone()
     if not ev:
         _heartbeat_if_needed()
         time.sleep(POLL_SECONDS)
@@ -115,11 +151,11 @@ while True:
         f"Picked event id={ev['id']} object_id={ev['object_id']} owner_id={ev['owner_id']} aspect_type={ev['aspect_type']}",
         flush=True,
     )
-    con.execute("UPDATE webhook_events SET status='processing' WHERE id=?", (ev["id"],))
+    con.execute(_sql("UPDATE webhook_events SET status='processing' WHERE id=?"), (ev["id"],))
     con.commit()
 
     try:
-        tok = con.execute("SELECT * FROM tokens WHERE athlete_id=?", (ev["owner_id"],)).fetchone()
+        tok = con.execute(_sql("SELECT * FROM tokens WHERE athlete_id=?"), (ev["owner_id"],)).fetchone()
         if not tok:
             raise RuntimeError("No OAuth token for athlete")
 
@@ -143,14 +179,35 @@ while True:
                 raise
 
         now = int(time.time())
-        con.execute(
-            "INSERT OR REPLACE INTO activities(activity_id, athlete_id, raw_json, updated_at) VALUES (?,?,?,?)",
-            (ev["object_id"], ev["owner_id"], json.dumps(act), now),
-        )
-        con.execute(
-            "INSERT OR REPLACE INTO activity_streams(activity_id, streams_json, updated_at) VALUES (?,?,?)",
-            (ev["object_id"], json.dumps(streams), now),
-        )
+        
+        # Insert/update activities - PostgreSQL uses ON CONFLICT, SQLite uses INSERT OR REPLACE
+        if USE_POSTGRES:
+            con.execute(
+                """INSERT INTO activities(activity_id, athlete_id, raw_json, updated_at) 
+                   VALUES (%s,%s,%s,%s)
+                   ON CONFLICT(activity_id) DO UPDATE SET
+                     athlete_id=EXCLUDED.athlete_id,
+                     raw_json=EXCLUDED.raw_json,
+                     updated_at=EXCLUDED.updated_at""",
+                (ev["object_id"], ev["owner_id"], json.dumps(act), now),
+            )
+            con.execute(
+                """INSERT INTO activity_streams(activity_id, streams_json, updated_at) 
+                   VALUES (%s,%s,%s)
+                   ON CONFLICT(activity_id) DO UPDATE SET
+                     streams_json=EXCLUDED.streams_json,
+                     updated_at=EXCLUDED.updated_at""",
+                (ev["object_id"], json.dumps(streams), now),
+            )
+        else:
+            con.execute(
+                "INSERT OR REPLACE INTO activities(activity_id, athlete_id, raw_json, updated_at) VALUES (?,?,?,?)",
+                (ev["object_id"], ev["owner_id"], json.dumps(act), now),
+            )
+            con.execute(
+                "INSERT OR REPLACE INTO activity_streams(activity_id, streams_json, updated_at) VALUES (?,?,?)",
+                (ev["object_id"], json.dumps(streams), now),
+            )
         con.commit()
         
         # Generate AI analysis if enabled and it's a ride
@@ -208,7 +265,7 @@ while True:
                         # Persist success info so we can debug without relying on stdout.
                         try:
                             con.execute(
-                                "UPDATE webhook_events SET last_error=? WHERE id=?",
+                                _sql("UPDATE webhook_events SET last_error=? WHERE id=?"),
                                 ("report_generated: " + " ".join(info_parts), ev["id"]),
                             )
                             con.commit()
@@ -219,7 +276,7 @@ while True:
                     print(f"⚠ Report generation failed for {ev['object_id']}: {md_error}", flush=True)
                     # Persist the error so we can debug without relying on stdout.
                     try:
-                        con.execute("UPDATE webhook_events SET last_error=? WHERE id=?", (msg, ev["id"]))
+                        con.execute(_sql("UPDATE webhook_events SET last_error=? WHERE id=?"), (msg, ev["id"]))
                         con.commit()
                     except Exception:
                         # Don't fail ingestion if even error persistence fails.
@@ -277,10 +334,10 @@ while True:
             elif not analyze_ride:
                 print("Skipping analysis (ride_analyzer import failed)", flush=True)
         
-        con.execute("UPDATE webhook_events SET status='done' WHERE id=?", (ev["id"],))
+        con.execute(_sql("UPDATE webhook_events SET status='done' WHERE id=?"), (ev["id"],))
         con.commit()
         print("Ingested", ev["object_id"], flush=True)
     except Exception as e:
-        con.execute("UPDATE webhook_events SET status='failed', last_error=? WHERE id=?", (str(e), ev["id"]))
+        con.execute(_sql("UPDATE webhook_events SET status='failed', last_error=? WHERE id=?"), (str(e), ev["id"]))
         con.commit()
         print("Failed", e, flush=True)

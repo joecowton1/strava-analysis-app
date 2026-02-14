@@ -80,6 +80,7 @@ gcloud run deploy $BACKEND_SERVICE \
   --cpu 1 \
   --min-instances 0 \
   --max-instances 10 \
+  --add-cloudsql-instances $PROJECT_ID:$REGION:strava-db \
   --set-env-vars "DB_PATH=/app/db/strava.sqlite,FRONTEND_URL=$FRONTEND_URL,STRAVA_CLIENT_ID=0,STRAVA_CLIENT_SECRET=placeholder,STRAVA_VERIFY_TOKEN=placeholder" \
   --quiet
 
@@ -105,6 +106,7 @@ gcloud run deploy $WORKER_SERVICE \
   --cpu 1 \
   --min-instances 0 \
   --max-instances 1 \
+  --add-cloudsql-instances $PROJECT_ID:$REGION:strava-db \
   --set-env-vars "DB_PATH=/app/db/strava.sqlite,STRAVA_CLIENT_ID=0,STRAVA_CLIENT_SECRET=placeholder,STRAVA_VERIFY_TOKEN=placeholder" \
   --quiet
 
@@ -113,13 +115,30 @@ echo "✅ Worker deployed"
 # Redeploy Frontend with backend URL
 echo ""
 echo "📦 Redeploying frontend with backend URL..."
-cd frontend
 
-# Update API URL in build
-export VITE_API_BASE_URL=$BACKEND_URL
+# Build frontend with backend URL baked in
+IMAGE_FRONTEND="gcr.io/$PROJECT_ID/$FRONTEND_SERVICE:latest"
 
+# Update the cloudbuild config with actual backend URL
+cat > cloudbuild.frontend.yaml <<EOF
+steps:
+  - name: 'gcr.io/cloud-builders/docker'
+    args: 
+      - 'build'
+      - '-t'
+      - '$IMAGE_FRONTEND'
+      - '--build-arg'
+      - 'VITE_API_BASE_URL=$BACKEND_URL'
+      - 'frontend/'
+images:
+  - '$IMAGE_FRONTEND'
+EOF
+
+gcloud builds submit --config cloudbuild.frontend.yaml .
+
+# Deploy to Cloud Run
 gcloud run deploy $FRONTEND_SERVICE \
-  --source . \
+  --image $IMAGE_FRONTEND \
   --platform managed \
   --region $REGION \
   --allow-unauthenticated \
@@ -133,8 +152,6 @@ gcloud run deploy $FRONTEND_SERVICE \
 # Get frontend URL
 FRONTEND_URL=$(gcloud run services describe $FRONTEND_SERVICE --region $REGION --format 'value(status.url)')
 echo "✅ Frontend deployed at: $FRONTEND_URL"
-
-cd ..
 
 echo ""
 echo "🎉 Deployment complete!"

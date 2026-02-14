@@ -12,6 +12,12 @@ def create_sub():
             "STRAVA_CALLBACK_URL is empty. Set it to your public ngrok https URL + /strava/webhook"
         )
 
+    print(f"Creating webhook subscription...")
+    print(f"  Callback URL: {s.callback_url}")
+    print(f"  Client ID: {s.client_id}")
+    print(f"  Verify Token: {s.verify_token}")
+    print()
+
     r = requests.post(
         f"{STRAVA_API}/push_subscriptions",
         data={
@@ -22,7 +28,17 @@ def create_sub():
         },
         timeout=30,
     )
-    r.raise_for_status()
+    
+    if not r.ok:
+        print(f"❌ Error {r.status_code}: {r.reason}")
+        try:
+            error_data = r.json()
+            print(f"Details: {error_data}")
+        except:
+            print(f"Response: {r.text}")
+        r.raise_for_status()
+    
+    print("✅ Webhook subscription created:")
     print(r.json())
 
 def list_sub():
