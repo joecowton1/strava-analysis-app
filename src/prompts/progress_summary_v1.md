@@ -4,16 +4,16 @@ You will be given multiple ride analysis reports in chronological order (oldest 
 
 TASK
 
-Summarise my progress so far, strictly using evidence from the provided reports. Do not invent data.
+Summarise my progress so far, strictly using evidence from the provided reports. Do not invent data. Always refer to rides by their name (never by activity_id).
 
 Output as markdown with headings:
 
 
-1) What’s improving (max 5 bullets)
-   - Each bullet should cite the ride(s) by activity_id.
+1) What's improving (max 5 bullets)
+   - Each bullet should cite the ride(s) by name.
 
-2) What’s still limiting “Fred readiness” (max 5 bullets)
-   - Each bullet should cite the ride(s) by activity_id.
+2) What's still limiting "Fred readiness" (max 5 bullets)
+   - Each bullet should cite the ride(s) by name.
 
 3) Next priorities (top 3)
    - For each: the behaviour cue, how to measure it, and one next-ride rule.
@@ -24,5 +24,3 @@ Output as markdown with headings:
 
 PROMPT_VERSION=progress_v1
 MODEL=gpt-5.2
-
-

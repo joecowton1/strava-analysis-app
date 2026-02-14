@@ -264,11 +264,6 @@ export function App() {
         }),
     [filtered]
   );
-  const progressCount = useMemo(
-    () => items.filter((it) => it.kind === "progress").length,
-    [items]
-  );
-
   const closeModal = () => {
     setSelected(null);
     setDetail(null);
@@ -315,10 +310,6 @@ export function App() {
         <div className="topbarRight">
           <span className="stat">
             <span className="statNum">{rides.length}</span> rides
-          </span>
-          <span className="statSep" />
-          <span className="stat">
-            <span className="statNum">{progressCount}</span> summaries
           </span>
           <span className="statSep" />
           <span className="userName">{user.name || `Athlete ${user.athlete_id}`}</span>
@@ -414,16 +405,16 @@ export function App() {
                 </div>
                 <div className="modalMeta">
                   <span>{fmtTs(selected.created_at)}</span>
-                  {selected.prompt_version && (
+                  {selected.distance != null && (
                     <>
                       <span className="dot">·</span>
-                      <span className="mono">{selected.prompt_version}</span>
+                      <span>{fmtDist(selected.distance)}</span>
                     </>
                   )}
-                  {selected.model && (
+                  {selected.total_elevation_gain != null && (
                     <>
                       <span className="dot">·</span>
-                      <span className="mono">{selected.model}</span>
+                      <span>{fmtElev(selected.total_elevation_gain)} elev</span>
                     </>
                   )}
                 </div>

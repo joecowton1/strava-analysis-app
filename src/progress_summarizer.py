@@ -77,11 +77,6 @@ def summarize_progress(analyses: List[Dict[str, Any]]) -> Dict[str, Any]:
     template = _load_prompt_template()
     model_override = _extract_model_from_prompt(template)
     model_used = model_override or s.openai_model
-    model_override = _extract_model_from_prompt(template)
-    placeholder = "{PASTE_REPORTS_HERE}"
-    if placeholder not in template:
-        raise ValueError(f"Progress summary prompt missing required placeholder {placeholder!r}")
-
     reports_text = _format_reports_chronological(analyses)
     if not reports_text.strip():
         raise ValueError("No reports available to summarize")
@@ -98,7 +93,12 @@ def summarize_progress(analyses: List[Dict[str, Any]]) -> Dict[str, Any]:
             f"NOTE: Older reports were truncated due to size limits.\n\n{reports_text}"
         )
 
-    prompt = template.replace(placeholder, reports_text)
+    # Support legacy placeholder or append reports after the prompt
+    placeholder = "{PASTE_REPORTS_HERE}"
+    if placeholder in template:
+        prompt = template.replace(placeholder, reports_text)
+    else:
+        prompt = template.rstrip() + "\n\nREPORTS (chronological)\n\n" + reports_text
 
     client = OpenAI(api_key=s.openai_api_key)
     resp = client.chat.completions.create(
