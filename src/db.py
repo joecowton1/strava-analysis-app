@@ -7,9 +7,9 @@ from typing import Optional
 USE_POSTGRES = os.environ.get("USE_POSTGRES", "false").lower() in ("true", "1", "yes")
 
 if USE_POSTGRES:
-    import psycopg2
-    from psycopg2.extras import RealDictCursor
-    from psycopg2.pool import SimpleConnectionPool
+    import psycopg2  # type: ignore[import-untyped]
+    from psycopg2.extras import RealDictCursor  # type: ignore[import-untyped]
+    from psycopg2.pool import SimpleConnectionPool  # type: ignore[import-untyped]
     
     _pool = None
     
