@@ -85,29 +85,6 @@ function RideCard({
   );
 }
 
-function ProgressCard({
-  item,
-  onClick,
-}: {
-  item: ReportListItem;
-  onClick: () => void;
-}) {
-  return (
-    <button className="card cardProgress" onClick={onClick}>
-      <div className="cardHeader">
-        <span className="cardTitle">{item.name ?? "Progress Summary"}</span>
-      </div>
-      <div className="cardMeta">
-        <span className="cardDate">{fmtTs(item.created_at)}</span>
-      </div>
-      <div className="cardFooter">
-        <span className="mono cardModel">{item.model ?? ""}</span>
-        <span className="mono cardPrompt">{item.prompt_version ?? ""}</span>
-      </div>
-    </button>
-  );
-}
-
 function LoginPage() {
   // Check for auth errors in URL
   const params = new URLSearchParams(window.location.search);
@@ -154,6 +131,8 @@ export function App() {
   const [error, setError] = useState<string | null>(null);
   const [loadingList, setLoadingList] = useState(false);
   const [loadingDetail, setLoadingDetail] = useState(false);
+  const [latestProgress, setLatestProgress] = useState<ReportDetailResponse | null>(null);
+  const [loadingProgress, setLoadingProgress] = useState(false);
 
   // Check auth on mount — extract token from URL if present (OAuth redirect)
   useEffect(() => {
@@ -189,6 +168,32 @@ export function App() {
       }
     })();
   }, [user]);
+
+  // Auto-load latest progress summary content
+  const latestProgressItem = useMemo(() => {
+    const all = items
+      .filter((it) => it.kind === "progress")
+      .sort((a, b) => (b.created_at || 0) - (a.created_at || 0));
+    return all[0] ?? null;
+  }, [items]);
+
+  useEffect(() => {
+    if (!latestProgressItem) {
+      setLatestProgress(null);
+      return;
+    }
+    (async () => {
+      setLoadingProgress(true);
+      try {
+        const d = await fetchReport(latestProgressItem.kind, latestProgressItem.activity_id);
+        setLatestProgress(d);
+      } catch {
+        // silently ignore — progress just won't show
+      } finally {
+        setLoadingProgress(false);
+      }
+    })();
+  }, [latestProgressItem?.activity_id]);
 
   useEffect(() => {
     (async () => {
@@ -238,12 +243,9 @@ export function App() {
         }),
     [filtered]
   );
-  const progress = useMemo(
-    () =>
-      filtered
-        .filter((it) => it.kind === "progress")
-        .sort((a, b) => (b.created_at || 0) - (a.created_at || 0)),
-    [filtered]
+  const progressCount = useMemo(
+    () => items.filter((it) => it.kind === "progress").length,
+    [items]
   );
 
   const closeModal = () => {
@@ -295,7 +297,7 @@ export function App() {
           </span>
           <span className="statSep" />
           <span className="stat">
-            <span className="statNum">{progress.length}</span> summaries
+            <span className="statNum">{progressCount}</span> summaries
           </span>
           <span className="statSep" />
           <span className="userName">{user.name || `Athlete ${user.athlete_id}`}</span>
@@ -345,29 +347,34 @@ export function App() {
           </div>
         </section>
 
-        {/* Progress column */}
+        {/* Latest progress summary */}
         <section className="column">
           <div className="columnHeader">
-            <h2 className="columnTitle">Progress Summaries</h2>
-            <span className="columnCount">{progress.length}</span>
+            <h2 className="columnTitle">Latest Summary</h2>
+            {latestProgressItem && (
+              <span className="columnMeta">{fmtTs(latestProgressItem.created_at)}</span>
+            )}
           </div>
-          <div className="columnList">
-            {progress.length === 0 && !loadingList && (
+          <div className="columnBody">
+            {!latestProgressItem && !loadingList && (
               <div className="emptyState">
                 <div className="emptyIcon">&#x1F4CA;</div>
-                <div className="emptyText">No summaries yet</div>
+                <div className="emptyText">No summary yet</div>
                 <div className="emptyHint">
-                  Progress summaries are generated alongside ride analyses
+                  A progress summary is generated alongside ride analyses
                 </div>
               </div>
             )}
-            {progress.map((it) => (
-              <ProgressCard
-                key={`progress:${it.activity_id}:${it.created_at}`}
-                item={it}
-                onClick={() => setSelected(it)}
-              />
-            ))}
+            {loadingProgress && (
+              <div className="muted loadingReport">Loading summary…</div>
+            )}
+            {latestProgress && (
+              <article className="markdown progressInline">
+                <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                  {latestProgress.markdown}
+                </ReactMarkdown>
+              </article>
+            )}
           </div>
         </section>
       </div>

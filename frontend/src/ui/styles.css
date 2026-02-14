@@ -1,17 +1,21 @@
-/* ── Tokens ── */
+/* ── Tokens (Strava-inspired light theme) ── */
 :root {
-  --bg: #0b1020;
-  --panel: #0f1733;
-  --panel2: #131d42;
-  --text: #e9eefc;
-  --muted: #8895b3;
-  --border: rgba(255, 255, 255, 0.07);
-  --accent: #6ea8fe;
-  --accent2: #a78bfa;
-  --danger: #ff6b6b;
-  --green: #34d399;
-  --radius: 14px;
-  --radius-sm: 10px;
+  --bg: #f7f7fa;
+  --panel: #ffffff;
+  --text: #2d2d2d;
+  --muted: #6d6d78;
+  --border: #e8e8ed;
+  --border-light: #f0f0f4;
+  --accent: #fc4c02;
+  --accent-hover: #e04400;
+  --accent-bg: rgba(252, 76, 2, 0.08);
+  --green: #2ea843;
+  --green-bg: rgba(46, 168, 67, 0.08);
+  --radius: 8px;
+  --radius-sm: 6px;
+  --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.06);
+  --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.08);
+  --shadow-lg: 0 12px 40px rgba(0, 0, 0, 0.12);
 }
 
 /* ── Reset ── */
@@ -26,15 +30,25 @@ body {
   margin: 0;
   background: var(--bg);
   color: var(--text);
-  font-family: "Inter", ui-sans-serif, system-ui, -apple-system, "Segoe UI",
-    Roboto, Helvetica, Arial, sans-serif;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+    Helvetica, Arial, sans-serif;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+  font-size: 14px;
+  line-height: 1.5;
 }
 button {
   font: inherit;
   border: none;
   cursor: pointer;
+  background: none;
+}
+a {
+  color: var(--accent);
+  text-decoration: none;
+}
+a:hover {
+  text-decoration: underline;
 }
 
 /* ── Shell (full-page wrapper) ── */
@@ -43,11 +57,6 @@ button {
   flex-direction: column;
   height: 100vh;
   overflow: hidden;
-  background: radial-gradient(
-    ellipse 1200px 600px at 30% -5%,
-    #151f4a 0%,
-    var(--bg) 70%
-  );
 }
 
 /* ── Top bar ── */
@@ -55,10 +64,10 @@ button {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 14px 28px;
+  padding: 0 24px;
+  height: 56px;
   border-bottom: 1px solid var(--border);
-  background: rgba(15, 23, 51, 0.6);
-  backdrop-filter: blur(12px);
+  background: var(--panel);
   flex-shrink: 0;
   gap: 16px;
 }
@@ -69,30 +78,31 @@ button {
   flex-shrink: 0;
 }
 .logo {
-  font-weight: 800;
-  font-size: 17px;
+  font-weight: 700;
+  font-size: 18px;
   letter-spacing: -0.02em;
+  color: var(--accent);
 }
 .logoBeta {
-  font-size: 10px;
-  font-weight: 600;
+  font-size: 9px;
+  font-weight: 700;
   text-transform: uppercase;
-  letter-spacing: 0.06em;
-  padding: 2px 7px;
-  border-radius: 6px;
-  background: rgba(110, 168, 254, 0.14);
+  letter-spacing: 0.08em;
+  padding: 2px 6px;
+  border-radius: 4px;
+  background: var(--accent-bg);
   color: var(--accent);
 }
 .topbarCenter {
   flex: 1;
-  max-width: 420px;
+  max-width: 360px;
 }
 .searchInput {
   width: 100%;
-  padding: 9px 14px;
-  border-radius: var(--radius-sm);
+  padding: 8px 12px;
+  border-radius: var(--radius);
   border: 1px solid var(--border);
-  background: rgba(255, 255, 255, 0.04);
+  background: var(--bg);
   color: var(--text);
   font-size: 13px;
   outline: none;
@@ -102,13 +112,13 @@ button {
   color: var(--muted);
 }
 .searchInput:focus {
-  border-color: rgba(110, 168, 254, 0.5);
-  box-shadow: 0 0 0 3px rgba(110, 168, 254, 0.1);
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px rgba(252, 76, 2, 0.1);
 }
 .topbarRight {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 12px;
   flex-shrink: 0;
 }
 .stat {
@@ -117,19 +127,19 @@ button {
 }
 .statNum {
   color: var(--text);
-  font-weight: 700;
+  font-weight: 600;
 }
 .statSep {
   width: 1px;
-  height: 14px;
+  height: 16px;
   background: var(--border);
 }
 
 /* ── Loading bar ── */
 .loadingBar {
-  height: 2px;
+  height: 3px;
   width: 100%;
-  background: var(--border);
+  background: var(--border-light);
   overflow: hidden;
   flex-shrink: 0;
 }
@@ -151,10 +161,10 @@ button {
 
 /* ── Error banner ── */
 .errorBanner {
-  padding: 10px 28px;
-  background: rgba(255, 107, 107, 0.1);
-  border-bottom: 1px solid rgba(255, 107, 107, 0.2);
-  color: #ffd4d4;
+  padding: 10px 24px;
+  background: #fef2f2;
+  border-bottom: 1px solid #fecaca;
+  color: #dc2626;
   font-size: 13px;
   flex-shrink: 0;
 }
@@ -182,55 +192,53 @@ button {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 16px 24px 12px;
+  padding: 16px 20px 12px;
   flex-shrink: 0;
 }
 .columnTitle {
   margin: 0;
-  font-size: 15px;
+  font-size: 16px;
   font-weight: 700;
-  letter-spacing: -0.01em;
+  color: var(--text);
 }
 .columnCount {
   font-size: 12px;
   font-weight: 600;
-  padding: 2px 9px;
+  padding: 2px 10px;
   border-radius: 999px;
-  background: rgba(255, 255, 255, 0.06);
+  background: var(--bg);
   color: var(--muted);
+  border: 1px solid var(--border);
 }
 
 .columnList {
   overflow-y: auto;
-  padding: 0 16px 24px;
+  padding: 0 12px 24px;
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 1px;
 }
 
-/* ── Cards ── */
+/* ── Cards (activity-feed style) ── */
 .card {
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 4px;
   text-align: left;
-  padding: 14px 16px;
+  padding: 12px 14px;
   border-radius: var(--radius);
-  border: 1px solid var(--border);
-  background: rgba(255, 255, 255, 0.025);
+  border: 1px solid transparent;
+  background: var(--panel);
   color: var(--text);
-  transition: background 0.15s, border-color 0.15s, transform 0.12s;
+  transition: background 0.12s, box-shadow 0.12s, border-color 0.12s;
 }
 .card:hover {
-  background: rgba(255, 255, 255, 0.055);
-  border-color: rgba(255, 255, 255, 0.12);
-  transform: translateY(-1px);
+  background: var(--panel);
+  border-color: var(--border);
+  box-shadow: var(--shadow-sm);
 }
 .card:active {
-  transform: translateY(0);
-}
-.cardProgress {
-  border-left: 3px solid rgba(167, 139, 250, 0.4);
+  background: var(--bg);
 }
 
 .cardHeader {
@@ -242,19 +250,24 @@ button {
 .cardTitle {
   font-weight: 600;
   font-size: 14px;
+  color: var(--text);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
   flex: 1;
 }
+.card:hover .cardTitle {
+  color: var(--accent);
+}
 .cardSport {
   font-size: 11px;
-  padding: 2px 8px;
+  padding: 1px 8px;
   border-radius: 999px;
-  background: rgba(52, 211, 153, 0.12);
+  background: var(--green-bg);
   color: var(--green);
-  font-weight: 500;
+  font-weight: 600;
   flex-shrink: 0;
+  text-transform: capitalize;
 }
 
 .cardMeta {
@@ -269,13 +282,14 @@ button {
 .cardFooter {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 8px;
+  margin-top: 2px;
 }
 .cardModel,
 .cardPrompt {
   font-size: 11px;
   color: var(--muted);
-  opacity: 0.7;
+  opacity: 0.6;
 }
 
 /* ── Empty state ── */
@@ -290,7 +304,7 @@ button {
 }
 .emptyIcon {
   font-size: 36px;
-  opacity: 0.5;
+  opacity: 0.4;
 }
 .emptyText {
   font-weight: 600;
@@ -309,8 +323,8 @@ button {
   position: fixed;
   inset: 0;
   z-index: 100;
-  background: rgba(5, 8, 18, 0.75);
-  backdrop-filter: blur(6px);
+  background: rgba(0, 0, 0, 0.4);
+  backdrop-filter: blur(4px);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -330,12 +344,11 @@ button {
   max-height: 88vh;
   background: var(--panel);
   border: 1px solid var(--border);
-  border-radius: 18px;
+  border-radius: 12px;
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  box-shadow: 0 24px 80px rgba(0, 0, 0, 0.6),
-    0 0 0 1px rgba(255, 255, 255, 0.04);
+  box-shadow: var(--shadow-lg);
   animation: modalUp 0.2s ease;
 }
 @keyframes modalUp {
@@ -364,21 +377,24 @@ button {
   display: flex;
   align-items: center;
   gap: 10px;
+  color: var(--text);
 }
 .modalPill {
   font-size: 11px;
-  font-weight: 600;
-  padding: 3px 10px;
+  font-weight: 700;
+  padding: 2px 10px;
   border-radius: 999px;
   flex-shrink: 0;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
 }
 .modalPill.ride {
-  background: rgba(52, 211, 153, 0.12);
+  background: var(--green-bg);
   color: var(--green);
 }
 .modalPill.progress {
-  background: rgba(167, 139, 250, 0.14);
-  color: var(--accent2);
+  background: var(--accent-bg);
+  color: var(--accent);
 }
 .modalMeta {
   color: var(--muted);
@@ -394,21 +410,21 @@ button {
 }
 
 .modalClose {
-  background: rgba(255, 255, 255, 0.06);
+  background: var(--bg);
   color: var(--muted);
   width: 32px;
   height: 32px;
-  border-radius: 10px;
+  border-radius: var(--radius);
   display: flex;
   align-items: center;
   justify-content: center;
   font-size: 20px;
   line-height: 1;
   flex-shrink: 0;
-  transition: background 0.12s;
+  transition: background 0.12s, color 0.12s;
 }
 .modalClose:hover {
-  background: rgba(255, 255, 255, 0.12);
+  background: var(--border);
   color: var(--text);
 }
 
@@ -425,21 +441,27 @@ button {
 /* ── Markdown ── */
 .markdown {
   max-width: 780px;
-  line-height: 1.7;
-  font-size: 14.5px;
+  line-height: 1.75;
+  font-size: 14px;
+  color: var(--text);
 }
 .markdown h1 {
   font-size: 22px;
+  font-weight: 700;
   margin-top: 28px;
   margin-bottom: 12px;
+  color: var(--text);
 }
 .markdown h2 {
-  font-size: 18px;
+  font-size: 17px;
+  font-weight: 700;
   margin-top: 24px;
   margin-bottom: 10px;
+  color: var(--text);
 }
 .markdown h3 {
   font-size: 15px;
+  font-weight: 600;
   margin-top: 20px;
   margin-bottom: 8px;
 }
@@ -448,20 +470,20 @@ button {
 }
 .markdown a {
   color: var(--accent);
-  text-decoration: none;
 }
 .markdown a:hover {
   text-decoration: underline;
 }
 .markdown code {
-  background: rgba(255, 255, 255, 0.07);
-  padding: 2px 7px;
-  border-radius: 6px;
+  background: var(--bg);
+  padding: 2px 6px;
+  border-radius: 4px;
   font-size: 0.9em;
+  border: 1px solid var(--border-light);
 }
 .markdown pre {
-  background: rgba(0, 0, 0, 0.3);
-  border-radius: var(--radius-sm);
+  background: #fafafa;
+  border-radius: var(--radius);
   border: 1px solid var(--border);
   overflow: auto;
   margin: 14px 0;
@@ -470,6 +492,7 @@ button {
   display: block;
   padding: 14px;
   background: none;
+  border: none;
   border-radius: 0;
 }
 .markdown table {
@@ -485,7 +508,7 @@ button {
   text-align: left;
 }
 .markdown th {
-  background: rgba(255, 255, 255, 0.04);
+  background: var(--bg);
   font-weight: 600;
 }
 .markdown ul,
@@ -499,13 +522,16 @@ button {
   margin: 14px 0;
   padding: 10px 16px;
   border-left: 3px solid var(--accent);
-  background: rgba(110, 168, 254, 0.06);
+  background: var(--accent-bg);
   border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
 }
 .markdown hr {
   border: none;
   border-top: 1px solid var(--border);
   margin: 20px 0;
+}
+.markdown strong {
+  font-weight: 600;
 }
 
 /* ── Utility ── */
@@ -517,11 +543,11 @@ button {
   color: var(--muted);
 }
 .error {
-  border: 1px solid rgba(255, 107, 107, 0.3);
-  background: rgba(255, 107, 107, 0.08);
-  color: #ffd4d4;
+  border: 1px solid #fecaca;
+  background: #fef2f2;
+  color: #dc2626;
   padding: 12px 16px;
-  border-radius: var(--radius-sm);
+  border-radius: var(--radius);
   margin: 12px 0;
   font-size: 13px;
 }
@@ -541,7 +567,8 @@ button {
   }
   .topbar {
     flex-wrap: wrap;
-    padding: 12px 16px;
+    padding: 10px 16px;
+    height: auto;
   }
   .topbarCenter {
     order: 3;
@@ -551,27 +578,31 @@ button {
   .modal {
     width: 96vw;
     max-height: 92vh;
-    border-radius: 14px;
+    border-radius: 10px;
   }
 }
 
 /* ── Scrollbar ── */
 .columnList::-webkit-scrollbar,
+.columnBody::-webkit-scrollbar,
 .modalBody::-webkit-scrollbar {
   width: 6px;
 }
 .columnList::-webkit-scrollbar-track,
+.columnBody::-webkit-scrollbar-track,
 .modalBody::-webkit-scrollbar-track {
   background: transparent;
 }
 .columnList::-webkit-scrollbar-thumb,
+.columnBody::-webkit-scrollbar-thumb,
 .modalBody::-webkit-scrollbar-thumb {
-  background: rgba(255, 255, 255, 0.08);
+  background: rgba(0, 0, 0, 0.1);
   border-radius: 3px;
 }
 .columnList::-webkit-scrollbar-thumb:hover,
+.columnBody::-webkit-scrollbar-thumb:hover,
 .modalBody::-webkit-scrollbar-thumb:hover {
-  background: rgba(255, 255, 255, 0.16);
+  background: rgba(0, 0, 0, 0.2);
 }
 
 /* ── Login page ── */
@@ -580,11 +611,7 @@ button {
   align-items: center;
   justify-content: center;
   height: 100vh;
-  background: radial-gradient(
-    ellipse 1200px 600px at 30% -5%,
-    #151f4a 0%,
-    var(--bg) 70%
-  );
+  background: var(--bg);
 }
 .loginCard {
   display: flex;
@@ -592,10 +619,10 @@ button {
   align-items: center;
   gap: 16px;
   padding: 48px 40px;
-  border-radius: 20px;
+  border-radius: 12px;
   border: 1px solid var(--border);
   background: var(--panel);
-  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.4);
+  box-shadow: var(--shadow-md);
   max-width: 400px;
   width: 90vw;
   text-align: center;
@@ -604,6 +631,7 @@ button {
   font-size: 24px;
   font-weight: 800;
   letter-spacing: -0.03em;
+  color: var(--accent);
 }
 .loginSubtitle {
   color: var(--muted);
@@ -619,8 +647,8 @@ button {
   align-items: center;
   gap: 10px;
   padding: 12px 28px;
-  border-radius: 12px;
-  background: #fc4c02;
+  border-radius: var(--radius);
+  background: var(--accent);
   color: #fff;
   font-weight: 600;
   font-size: 15px;
@@ -629,8 +657,9 @@ button {
   margin-top: 8px;
 }
 .stravaBtn:hover {
-  background: #e04400;
+  background: var(--accent-hover);
   transform: translateY(-1px);
+  text-decoration: none;
 }
 .stravaBtn:active {
   transform: translateY(0);
@@ -640,21 +669,39 @@ button {
 .userName {
   color: var(--muted);
   font-size: 13px;
+  font-weight: 500;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
   max-width: 140px;
 }
 .logoutBtn {
-  background: rgba(255, 255, 255, 0.06);
+  background: var(--bg);
   color: var(--muted);
-  padding: 5px 12px;
-  border-radius: 8px;
+  padding: 6px 12px;
+  border-radius: var(--radius-sm);
   font-size: 12px;
   font-weight: 500;
-  transition: background 0.12s, color 0.12s;
+  border: 1px solid var(--border);
+  transition: background 0.12s, color 0.12s, border-color 0.12s;
 }
 .logoutBtn:hover {
-  background: rgba(255, 255, 255, 0.12);
+  background: var(--border-light);
   color: var(--text);
+  border-color: var(--muted);
+}
+
+/* ── Progress inline summary ── */
+.columnMeta {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 400;
+}
+.columnBody {
+  overflow-y: auto;
+  padding: 0 20px 24px;
+}
+.progressInline {
+  font-size: 14px;
+  line-height: 1.75;
 }
