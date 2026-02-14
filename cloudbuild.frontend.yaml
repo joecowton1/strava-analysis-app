@@ -1,0 +1,11 @@
+steps:
+  - name: 'gcr.io/cloud-builders/docker'
+    args: 
+      - 'build'
+      - '-t'
+      - 'gcr.io/$PROJECT_ID/strava-frontend:latest'
+      - '--build-arg'
+      - 'VITE_API_BASE_URL=https://strava-backend-ftxt43xj5a-nw.a.run.app'
+      - '.'
+images:
+  - 'gcr.io/$PROJECT_ID/strava-frontend:latest'
