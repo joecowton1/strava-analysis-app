@@ -1,6 +1,7 @@
 import time
 import json
 import logging
+from contextlib import contextmanager
 from pathlib import Path
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -27,15 +28,29 @@ def _sql(query: str) -> str:
     return query
 
 # Helper to execute queries (PostgreSQL needs cursor, SQLite doesn't)
+@contextmanager
 def _execute(con, query: str, params=None):
-    """Execute a query with proper handling for both SQLite and PostgreSQL."""
+    """Execute a query, yielding a cursor that is auto-closed afterwards.
+
+    Usage:
+        with _execute(con, "SELECT ...") as cur:
+            row = cur.fetchone()
+    """
     if USE_POSTGRES:
         from psycopg2.extras import RealDictCursor
         cursor = con.cursor(cursor_factory=RealDictCursor)
-        cursor.execute(query, params)
-        return cursor
+        try:
+            cursor.execute(query, params)
+            yield cursor
+        finally:
+            cursor.close()
     else:
-        return con.execute(query, params)
+        yield con.execute(query, params)
+
+def _execute_write(con, query: str, params=None):
+    """Execute a write query, closing the cursor immediately (no result needed)."""
+    with _execute(con, query, params):
+        pass
 
 # Basic logging setup (plays nicely with uvicorn; avoids logging secrets)
 logging.basicConfig(
@@ -101,7 +116,7 @@ def receive(evt: Event):
     try:
         # Store updates as JSON (not Python repr)
         updates_json = json.dumps(evt.updates or {})
-        _execute(con,
+        _execute_write(con,
             _sql("INSERT INTO webhook_events(received_at, object_id, owner_id, aspect_type, object_type, subscription_id, updates_json) VALUES (?,?,?,?,?,?,?)"),
             (int(time.time()), evt.object_id, evt.owner_id, evt.aspect_type, evt.object_type, evt.subscription_id, updates_json),
         )
@@ -153,12 +168,12 @@ def backfill_activities():
     con = connect(s.db_path)
     try:
         # 1. Reset stuck 'processing' events to 'queued'
-        _execute(con, _sql("UPDATE webhook_events SET status='queued' WHERE status='processing'"))
+        _execute_write(con, _sql("UPDATE webhook_events SET status='queued' WHERE status='processing'"))
         con.commit()
 
         # 2. Get the first athlete's OAuth token
-        cursor = _execute(con, "SELECT * FROM tokens LIMIT 1")
-        tok = cursor.fetchone()
+        with _execute(con, "SELECT * FROM tokens LIMIT 1") as cursor:
+            tok = cursor.fetchone()
         if not tok:
             raise HTTPException(status_code=400, detail="No OAuth tokens found. Authenticate first.")
 
@@ -174,7 +189,7 @@ def backfill_activities():
             access_token = new_tokens["access_token"]
             # Update stored tokens
             if USE_POSTGRES:
-                _execute(con,
+                _execute_write(con,
                     """INSERT INTO tokens(athlete_id, access_token, refresh_token, expires_at)
                        VALUES (%s,%s,%s,%s)
                        ON CONFLICT(athlete_id) DO UPDATE SET
@@ -184,7 +199,7 @@ def backfill_activities():
                     (athlete_id, new_tokens["access_token"], new_tokens["refresh_token"], new_tokens["expires_at"]),
                 )
             else:
-                _execute(con,
+                _execute_write(con,
                     "INSERT OR REPLACE INTO tokens(athlete_id, access_token, refresh_token, expires_at) VALUES (?,?,?,?)",
                     (athlete_id, new_tokens["access_token"], new_tokens["refresh_token"], new_tokens["expires_at"]),
                 )
@@ -194,8 +209,8 @@ def backfill_activities():
         activities = client.list_athlete_activities(access_token, per_page=100, max_pages=20)
 
         # 4. Get existing activity IDs already queued/done
-        cursor = _execute(con, "SELECT DISTINCT object_id FROM webhook_events")
-        existing_ids = {row["object_id"] for row in cursor.fetchall()}
+        with _execute(con, "SELECT DISTINCT object_id FROM webhook_events") as cursor:
+            existing_ids = {row["object_id"] for row in cursor.fetchall()}
 
         # 5. Queue new ride activities
         ride_types = {"Ride", "VirtualRide", "EBikeRide"}
@@ -215,7 +230,7 @@ def backfill_activities():
                 skipped_count += 1
                 continue
 
-            _execute(con,
+            _execute_write(con,
                 _sql("INSERT INTO webhook_events(received_at, object_id, owner_id, aspect_type, object_type, subscription_id, updates_json) VALUES (?,?,?,?,?,?,?)"),
                 (now, activity_id, athlete_id, "create", "activity", 0, "{}"),
             )

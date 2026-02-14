@@ -3,6 +3,7 @@ import time
 import json
 import re
 import threading
+from contextlib import contextmanager
 from pathlib import Path
 import requests
 from .config import get_settings
@@ -26,15 +27,29 @@ def _sql(query: str) -> str:
     return query
 
 # Helper to execute queries (PostgreSQL needs cursor, SQLite doesn't)
+@contextmanager
 def _execute(con, query: str, params=None):
-    """Execute a query with proper handling for both SQLite and PostgreSQL."""
+    """Execute a query, yielding a cursor that is auto-closed afterwards.
+
+    Usage:
+        with _execute(con, "SELECT ...") as cur:
+            row = cur.fetchone()
+    """
     if USE_POSTGRES:
         from psycopg2.extras import RealDictCursor
         cursor = con.cursor(cursor_factory=RealDictCursor)
-        cursor.execute(query, params)
-        return cursor
+        try:
+            cursor.execute(query, params)
+            yield cursor
+        finally:
+            cursor.close()
     else:
-        return con.execute(query, params)
+        yield con.execute(query, params)
+
+def _execute_write(con, query: str, params=None):
+    """Execute a write query, closing the cursor immediately (no result needed)."""
+    with _execute(con, query, params):
+        pass
 
 def _commit(con):
     """Commit transaction."""
@@ -138,12 +153,12 @@ def _heartbeat_if_needed() -> None:
     if now - _last_heartbeat < HEARTBEAT_SECONDS:
         return
     _last_heartbeat = now
-    cursor = _execute(con, _sql("SELECT COUNT(*) AS c FROM webhook_events WHERE status='queued'"))
-    queued = cursor.fetchone()["c"]
-    cursor = _execute(con, _sql("SELECT COUNT(*) AS c FROM webhook_events WHERE status='failed'"))
-    failed = cursor.fetchone()["c"]
-    cursor = _execute(con, _sql("SELECT COUNT(*) AS c FROM webhook_events WHERE status='processing'"))
-    processing = cursor.fetchone()["c"]
+    with _execute(con, _sql("SELECT COUNT(*) AS c FROM webhook_events WHERE status='queued'")) as cursor:
+        queued = cursor.fetchone()["c"]
+    with _execute(con, _sql("SELECT COUNT(*) AS c FROM webhook_events WHERE status='failed'")) as cursor:
+        failed = cursor.fetchone()["c"]
+    with _execute(con, _sql("SELECT COUNT(*) AS c FROM webhook_events WHERE status='processing'")) as cursor:
+        processing = cursor.fetchone()["c"]
     # Always print occasionally so it's obvious the worker is alive.
     print(f"[heartbeat] queued={queued} processing={processing} failed={failed}", flush=True)
 
@@ -159,8 +174,8 @@ def _refresh_access_token_for_athlete(athlete_id: int, refresh_token: str) -> st
     return new_tokens["access_token"]
 
 while True:
-    cursor = _execute(con, _sql("SELECT * FROM webhook_events WHERE status='queued' LIMIT 1"))
-    ev = cursor.fetchone()
+    with _execute(con, _sql("SELECT * FROM webhook_events WHERE status='queued' LIMIT 1")) as cursor:
+        ev = cursor.fetchone()
     if not ev:
         _heartbeat_if_needed()
         time.sleep(POLL_SECONDS)
@@ -170,12 +185,12 @@ while True:
         f"Picked event id={ev['id']} object_id={ev['object_id']} owner_id={ev['owner_id']} aspect_type={ev['aspect_type']}",
         flush=True,
     )
-    _execute(con, _sql("UPDATE webhook_events SET status='processing' WHERE id=?"), (ev["id"],))
+    _execute_write(con, _sql("UPDATE webhook_events SET status='processing' WHERE id=?"), (ev["id"],))
     _commit(con)
 
     try:
-        cursor = _execute(con, _sql("SELECT * FROM tokens WHERE athlete_id=?"), (ev["owner_id"],))
-        tok = cursor.fetchone()
+        with _execute(con, _sql("SELECT * FROM tokens WHERE athlete_id=?"), (ev["owner_id"],)) as cursor:
+            tok = cursor.fetchone()
         if not tok:
             raise RuntimeError("No OAuth token for athlete")
 
@@ -202,7 +217,7 @@ while True:
         
         # Insert/update activities - PostgreSQL uses ON CONFLICT, SQLite uses INSERT OR REPLACE
         if USE_POSTGRES:
-            _execute(con,
+            _execute_write(con,
                 """INSERT INTO activities(activity_id, athlete_id, raw_json, updated_at) 
                    VALUES (%s,%s,%s,%s)
                    ON CONFLICT(activity_id) DO UPDATE SET
@@ -211,7 +226,7 @@ while True:
                      updated_at=EXCLUDED.updated_at""",
                 (ev["object_id"], ev["owner_id"], json.dumps(act), now),
             )
-            _execute(con,
+            _execute_write(con,
                 """INSERT INTO activity_streams(activity_id, streams_json, updated_at) 
                    VALUES (%s,%s,%s)
                    ON CONFLICT(activity_id) DO UPDATE SET
@@ -220,11 +235,11 @@ while True:
                 (ev["object_id"], json.dumps(streams), now),
             )
         else:
-            _execute(con,
+            _execute_write(con,
                 "INSERT OR REPLACE INTO activities(activity_id, athlete_id, raw_json, updated_at) VALUES (?,?,?,?)",
                 (ev["object_id"], ev["owner_id"], json.dumps(act), now),
             )
-            _execute(con,
+            _execute_write(con,
                 "INSERT OR REPLACE INTO activity_streams(activity_id, streams_json, updated_at) VALUES (?,?,?)",
                 (ev["object_id"], json.dumps(streams), now),
             )
@@ -284,7 +299,7 @@ while True:
 
                         # Persist success info so we can debug without relying on stdout.
                         try:
-                            _execute(con,
+                            _execute_write(con,
                                 _sql("UPDATE webhook_events SET last_error=? WHERE id=?"),
                                 ("report_generated: " + " ".join(info_parts), ev["id"]),
                             )
@@ -296,7 +311,7 @@ while True:
                     print(f"⚠ Report generation failed for {ev['object_id']}: {md_error}", flush=True)
                     # Persist the error so we can debug without relying on stdout.
                     try:
-                        _execute(con, _sql("UPDATE webhook_events SET last_error=? WHERE id=?"), (msg, ev["id"]))
+                        _execute_write(con, _sql("UPDATE webhook_events SET last_error=? WHERE id=?"), (msg, ev["id"]))
                         _commit(con)
                     except Exception:
                         # Don't fail ingestion if even error persistence fails.
@@ -354,10 +369,10 @@ while True:
             elif not analyze_ride:
                 print("Skipping analysis (ride_analyzer import failed)", flush=True)
         
-        _execute(con, _sql("UPDATE webhook_events SET status='done' WHERE id=?"), (ev["id"],))
+        _execute_write(con, _sql("UPDATE webhook_events SET status='done' WHERE id=?"), (ev["id"],))
         _commit(con)
         print("Ingested", ev["object_id"], flush=True)
     except Exception as e:
-        _execute(con, _sql("UPDATE webhook_events SET status='failed', last_error=? WHERE id=?"), (str(e), ev["id"]))
+        _execute_write(con, _sql("UPDATE webhook_events SET status='failed', last_error=? WHERE id=?"), (str(e), ev["id"]))
         _commit(con)
         print("Failed", e, flush=True)
