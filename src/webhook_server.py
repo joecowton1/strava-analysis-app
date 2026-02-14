@@ -102,8 +102,15 @@ def _decode_jwt(token: str) -> dict | None:
     except (jwt.ExpiredSignatureError, jwt.InvalidTokenError):
         return None
 
+def _get_token(request: Request) -> str | None:
+    """Extract JWT from Authorization header (preferred) or cookie (fallback)."""
+    auth = request.headers.get("authorization", "")
+    if auth.startswith("Bearer "):
+        return auth[7:]
+    return request.cookies.get(AUTH_COOKIE_NAME)
+
 def get_current_athlete(request: Request) -> int:
-    token = request.cookies.get(AUTH_COOKIE_NAME)
+    token = _get_token(request)
     if not token:
         raise HTTPException(status_code=401, detail="Not authenticated")
     payload = _decode_jwt(token)
@@ -171,14 +178,15 @@ def auth_callback(request: Request, code: str = "", error: str | None = None):
         close_connection(con)
 
     token = _create_jwt(athlete_id, athlete_name)
-    response = RedirectResponse(FRONTEND_URL)
-    _set_auth_cookie(response, token)
-    return response
+    # Pass JWT via URL query param — frontend extracts it and stores in localStorage.
+    # This avoids cross-origin cookie issues (third-party cookie blocking).
+    sep = "&" if "?" in FRONTEND_URL else "?"
+    return RedirectResponse(f"{FRONTEND_URL}{sep}token={token}")
 
 
 @app.get("/auth/me")
 def auth_me(request: Request):
-    token = request.cookies.get(AUTH_COOKIE_NAME)
+    token = _get_token(request)
     if not token:
         raise HTTPException(status_code=401, detail="Not authenticated")
     payload = _decode_jwt(token)

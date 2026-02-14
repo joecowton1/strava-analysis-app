@@ -7,6 +7,7 @@ import {
   fetchReportList,
   getLoginUrl,
   logout,
+  storeToken,
   type ReportDetailResponse,
   type ReportListItem,
   type ReportKind,
@@ -154,8 +155,18 @@ export function App() {
   const [loadingList, setLoadingList] = useState(false);
   const [loadingDetail, setLoadingDetail] = useState(false);
 
-  // Check auth on mount
+  // Check auth on mount — extract token from URL if present (OAuth redirect)
   useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const token = params.get("token");
+    if (token) {
+      storeToken(token);
+      // Clean the token out of the URL so it isn't bookmarked / shared
+      params.delete("token");
+      const clean = params.toString();
+      window.history.replaceState({}, "", window.location.pathname + (clean ? `?${clean}` : ""));
+    }
+
     fetchMe().then((u) => {
       setUser(u);
       setAuthChecked(true);

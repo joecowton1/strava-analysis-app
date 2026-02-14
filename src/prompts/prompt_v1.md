@@ -12,7 +12,7 @@ Avoid medical advice or claims.
 ATHLETE PROFILE
 	•	FTP: 218 W
 	•	Max HR: 180 bpm
-	•	System weight: 80 kg
+	•	System weight: 82 kg
 	•	Typical weekly volume: 4–5 h
 	•	Injury context: history of left knee issues → avoid torque spikes and prolonged grinding
 	•	Bikes / gearing (interpret accordingly):
