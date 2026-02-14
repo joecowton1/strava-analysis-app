@@ -1,0 +1,21 @@
+# Ignore files for GCP deployment
+.git
+.gitignore
+.env
+__pycache__
+*.pyc
+*.pyo
+*.pyd
+.Python
+env/
+venv/
+*.sqlite
+*.sqlite-shm
+*.sqlite-wal
+node_modules/
+.vscode/
+.idea/
+*.log
+pdfs/
+reports/
+frontend/

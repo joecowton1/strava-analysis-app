@@ -1,0 +1,118 @@
+# Cloud Build configuration for CI/CD pipeline
+# This allows you to deploy via Cloud Build instead of locally
+
+steps:
+  # Build Backend
+  - name: 'gcr.io/cloud-builders/docker'
+    args:
+      - 'build'
+      - '-t'
+      - 'gcr.io/$PROJECT_ID/strava-backend:$SHORT_SHA'
+      - '-t'
+      - 'gcr.io/$PROJECT_ID/strava-backend:latest'
+      - '-f'
+      - 'Dockerfile.backend'
+      - '.'
+    id: 'build-backend'
+
+  # Build Worker
+  - name: 'gcr.io/cloud-builders/docker'
+    args:
+      - 'build'
+      - '-t'
+      - 'gcr.io/$PROJECT_ID/strava-worker:$SHORT_SHA'
+      - '-t'
+      - 'gcr.io/$PROJECT_ID/strava-worker:latest'
+      - '-f'
+      - 'Dockerfile.worker'
+      - '.'
+    id: 'build-worker'
+
+  # Build Frontend
+  - name: 'gcr.io/cloud-builders/docker'
+    args:
+      - 'build'
+      - '-t'
+      - 'gcr.io/$PROJECT_ID/strava-frontend:$SHORT_SHA'
+      - '-t'
+      - 'gcr.io/$PROJECT_ID/strava-frontend:latest'
+      - 'frontend/'
+    id: 'build-frontend'
+
+  # Push Backend
+  - name: 'gcr.io/cloud-builders/docker'
+    args:
+      - 'push'
+      - 'gcr.io/$PROJECT_ID/strava-backend:$SHORT_SHA'
+    id: 'push-backend'
+    waitFor: ['build-backend']
+
+  # Push Worker
+  - name: 'gcr.io/cloud-builders/docker'
+    args:
+      - 'push'
+      - 'gcr.io/$PROJECT_ID/strava-worker:$SHORT_SHA'
+    id: 'push-worker'
+    waitFor: ['build-worker']
+
+  # Push Frontend
+  - name: 'gcr.io/cloud-builders/docker'
+    args:
+      - 'push'
+      - 'gcr.io/$PROJECT_ID/strava-frontend:$SHORT_SHA'
+    id: 'push-frontend'
+    waitFor: ['build-frontend']
+
+  # Deploy Backend to Cloud Run
+  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+    entrypoint: gcloud
+    args:
+      - 'run'
+      - 'deploy'
+      - 'strava-backend'
+      - '--image=gcr.io/$PROJECT_ID/strava-backend:$SHORT_SHA'
+      - '--region=us-central1'
+      - '--platform=managed'
+      - '--allow-unauthenticated'
+    id: 'deploy-backend'
+    waitFor: ['push-backend']
+
+  # Deploy Worker to Cloud Run
+  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+    entrypoint: gcloud
+    args:
+      - 'run'
+      - 'deploy'
+      - 'strava-worker'
+      - '--image=gcr.io/$PROJECT_ID/strava-worker:$SHORT_SHA'
+      - '--region=us-central1'
+      - '--platform=managed'
+      - '--no-allow-unauthenticated'
+    id: 'deploy-worker'
+    waitFor: ['push-worker']
+
+  # Deploy Frontend to Cloud Run
+  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+    entrypoint: gcloud
+    args:
+      - 'run'
+      - 'deploy'
+      - 'strava-frontend'
+      - '--image=gcr.io/$PROJECT_ID/strava-frontend:$SHORT_SHA'
+      - '--region=us-central1'
+      - '--platform=managed'
+      - '--allow-unauthenticated'
+    id: 'deploy-frontend'
+    waitFor: ['push-frontend']
+
+images:
+  - 'gcr.io/$PROJECT_ID/strava-backend:$SHORT_SHA'
+  - 'gcr.io/$PROJECT_ID/strava-backend:latest'
+  - 'gcr.io/$PROJECT_ID/strava-worker:$SHORT_SHA'
+  - 'gcr.io/$PROJECT_ID/strava-worker:latest'
+  - 'gcr.io/$PROJECT_ID/strava-frontend:$SHORT_SHA'
+  - 'gcr.io/$PROJECT_ID/strava-frontend:latest'
+
+options:
+  machineType: 'N1_HIGHCPU_8'
+  logging: CLOUD_LOGGING_ONLY

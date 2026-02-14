@@ -1,0 +1,24 @@
+# Docker ignore file
+.git
+.gitignore
+.env
+*.sqlite
+*.sqlite-shm
+*.sqlite-wal
+__pycache__
+*.pyc
+*.pyo
+*.pyd
+.Python
+env/
+venv/
+*.log
+pdfs/
+reports/
+README.md
+DEPLOYMENT.md
+deploy.sh
+frontend/
+node_modules/
+.vscode/
+.idea/
