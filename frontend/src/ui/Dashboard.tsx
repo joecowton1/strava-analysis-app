@@ -35,7 +35,16 @@ const MONTH_LABELS = [
   "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
 ];
 const FRED_WHITTON_MONTH = 5; // May
-const YEAR_COLORS = ["#d4d4d8", "#94a3b8", "#fb923c", "#fc4c02", "#e11d48"];
+const YEAR_COLORS = [
+  "#3b82f6", // blue
+  "#10b981", // green
+  "#f59e0b", // amber
+  "#ef4444", // red
+  "#8b5cf6", // purple
+  "#ec4899", // pink
+  "#06b6d4", // cyan
+  "#84cc16", // lime
+];
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -218,7 +227,7 @@ export function Dashboard({ items }: { items: ReportListItem[] }) {
           <ResponsiveContainer width="100%" height={320}>
             <LineChart
               data={chartData}
-              margin={{ top: 8, right: 12, bottom: 0, left: 0 }}
+              margin={{ top: 24, right: 12, bottom: 0, left: 0 }}
             >
               <XAxis
                 dataKey="month"
@@ -256,7 +265,7 @@ export function Dashboard({ items }: { items: ReportListItem[] }) {
               {years.map((yr, i) => (
                 <Line
                   key={yr}
-                  type="monotone"
+                  type="linear"
                   dataKey={String(yr)}
                   name={String(yr)}
                   stroke={YEAR_COLORS[i % YEAR_COLORS.length]}
