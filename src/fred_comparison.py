@@ -7,7 +7,12 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-from .openai_client import ask_openai
+try:
+    from openai import OpenAI
+except ImportError:
+    OpenAI = None
+
+from .config import get_settings
 
 
 def _load_prompt() -> dict[str, Any]:
@@ -126,20 +131,35 @@ def generate_fred_comparison(rides: list[dict[str, Any]]) -> dict[str, Any]:
     Returns:
         Dict with keys: summary_md, model, prompt_version
     """
+    if OpenAI is None:
+        return {
+            "summary_md": "**Error**: OpenAI library not installed.",
+            "model": "none",
+            "prompt_version": "fred_comparison_v1",
+        }
+    
     meta = _load_prompt()
     formatted_data = _format_year_data(rides)
     
     user_message = f"{meta['prompt']}\n\n---\n\n{formatted_data}"
     
     try:
-        response = ask_openai(
-            system="You are a cycling coach specializing in long-distance climbing events.",
-            user=user_message,
+        settings = get_settings()
+        client = OpenAI(api_key=settings.openai_api_key)
+        
+        response = client.chat.completions.create(
             model=meta["model"],
+            messages=[
+                {"role": "system", "content": "You are a cycling coach specializing in long-distance climbing events."},
+                {"role": "user", "content": user_message},
+            ],
+            temperature=0.7,
         )
         
+        summary_text = response.choices[0].message.content or ""
+        
         return {
-            "summary_md": response,
+            "summary_md": summary_text,
             "model": meta["model"],
             "prompt_version": meta["prompt_version"],
         }

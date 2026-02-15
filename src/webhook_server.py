@@ -303,20 +303,25 @@ def list_reports(request: Request):
     athlete_id = get_current_athlete(request)
     con = connect(s.db_path)
     try:
-        rides = list_ride_analyses_chronological(con, athlete_id=athlete_id)
+        # Get all activities (with or without analyses)
+        from .db import list_all_activities_chronological
+        all_activities = list_all_activities_chronological(con, athlete_id=athlete_id)
         progress = list_progress_summaries_chronological(con, athlete_id=athlete_id)
 
         items = []
-        for r in rides:
+        for r in all_activities:
             act = r.get("activity") or {}
-            items.append({
-                "kind": "ride", "activity_id": r["activity_id"], "created_at": r["created_at"],
-                "model": r.get("model"), "prompt_version": r.get("prompt_version"),
-                "name": act.get("name"), "start_date": act.get("start_date"), "sport_type": act.get("sport_type"),
-                "distance": act.get("distance"), "total_elevation_gain": act.get("total_elevation_gain"),
-                "moving_time": act.get("moving_time"), "average_speed": act.get("average_speed"),
-                "average_watts": act.get("average_watts"), "average_heartrate": act.get("average_heartrate"),
-            })
+            # Only include rides (not runs, swims, etc.)
+            sport_type = act.get("sport_type", "")
+            if sport_type in ["Ride", "VirtualRide", "EBikeRide"]:
+                items.append({
+                    "kind": "ride", "activity_id": r["activity_id"], "created_at": r["created_at"],
+                    "model": r.get("model"), "prompt_version": r.get("prompt_version"),
+                    "name": act.get("name"), "start_date": act.get("start_date"), "sport_type": act.get("sport_type"),
+                    "distance": act.get("distance"), "total_elevation_gain": act.get("total_elevation_gain"),
+                    "moving_time": act.get("moving_time"), "average_speed": act.get("average_speed"),
+                    "average_watts": act.get("average_watts"), "average_heartrate": act.get("average_heartrate"),
+                })
         for p in progress:
             created_at = int(p.get("created_at") or 0)
             date_str = time.strftime("%d/%m/%Y", time.localtime(created_at)) if created_at else ""

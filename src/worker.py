@@ -245,8 +245,22 @@ while True:
             )
         _commit(con)
         
-        # Generate AI analysis if enabled and it's a ride
-        if AI_ANALYSIS_ENABLED and analyze_ride and act.get("sport_type") in ["Ride", "VirtualRide", "EBikeRide"]:
+        # Check ride age - skip AI analysis for rides older than 30 days
+        ride_date_str = act.get("start_date") or act.get("start_date_local")
+        skip_analysis = False
+        if ride_date_str:
+            try:
+                from datetime import datetime, timezone
+                ride_date = datetime.fromisoformat(ride_date_str.replace("Z", "+00:00"))
+                age_days = (datetime.now(timezone.utc) - ride_date).days
+                if age_days > 30:
+                    skip_analysis = True
+                    print(f"Skipping analysis for old ride (age: {age_days} days, date: {ride_date_str})", flush=True)
+            except Exception as date_err:
+                print(f"⚠ Could not parse ride date: {date_err}", flush=True)
+        
+        # Generate AI analysis if enabled, it's a ride, and it's recent enough
+        if not skip_analysis and AI_ANALYSIS_ENABLED and analyze_ride and act.get("sport_type") in ["Ride", "VirtualRide", "EBikeRide"]:
             try:
                 print(f"Analyzing ride {ev['object_id']}...", flush=True)
                 analysis = analyze_ride(act, streams)
@@ -364,7 +378,9 @@ while True:
                 print(f"⚠ Analysis failed for {ev['object_id']}: {analysis_error}", flush=True)
                 # Don't fail the whole ingestion if analysis fails
         else:
-            if act.get("sport_type") not in ["Ride", "VirtualRide", "EBikeRide"]:
+            if skip_analysis:
+                print(f"Skipping analysis (ride older than 30 days)", flush=True)
+            elif act.get("sport_type") not in ["Ride", "VirtualRide", "EBikeRide"]:
                 print(f"Skipping analysis (sport_type={act.get('sport_type')})", flush=True)
             elif not AI_ANALYSIS_ENABLED:
                 print("Skipping analysis (OPENAI_API_KEY not set)", flush=True)

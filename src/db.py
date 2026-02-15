@@ -355,6 +355,71 @@ def get_ride_analysis(con, activity_id: int, athlete_id: int | None = None):
     }
 
 
+def list_all_activities_chronological(con, athlete_id: int | None = None):
+    """List all activities in chronological order with optional analysis data."""
+    where = ""
+    params: tuple = ()
+    if athlete_id is not None:
+        if USE_POSTGRES:
+            where = "WHERE a.athlete_id = %s"
+        else:
+            where = "WHERE a.athlete_id = ?"
+        params = (athlete_id,)
+
+    q = f"""
+        SELECT
+          a.activity_id,
+          a.raw_json AS activity_raw_json,
+          a.ingested_at,
+          ra.created_at AS analysis_created_at,
+          ra.model,
+          ra.prompt_version,
+          ra.metrics_json,
+          ra.narrative_md
+        FROM activities a
+        LEFT JOIN ride_analysis ra ON ra.activity_id = a.activity_id
+        {where}
+        ORDER BY a.ingested_at ASC
+    """
+
+    if USE_POSTGRES:
+        cursor = con.cursor(cursor_factory=RealDictCursor)
+        cursor.execute(q, params)
+        rows = cursor.fetchall()
+        cursor.close()
+    else:
+        rows = con.execute(q, params).fetchall()
+
+    out = []
+    for r in rows:
+        activity = None
+        if r["activity_raw_json"]:
+            try:
+                activity = json.loads(r["activity_raw_json"])
+            except Exception:
+                activity = None
+
+        metrics = None
+        if r.get("metrics_json"):
+            try:
+                metrics = json.loads(r["metrics_json"])
+            except Exception:
+                metrics = None
+
+        out.append(
+            {
+                "activity_id": r["activity_id"],
+                "created_at": r.get("analysis_created_at") or r.get("ingested_at"),
+                "model": r.get("model"),
+                "prompt_version": r.get("prompt_version"),
+                "metrics": metrics,
+                "narrative_md": r.get("narrative_md"),
+                "activity": activity,
+            }
+        )
+    return out
+
+
 def list_ride_analyses_chronological(con, athlete_id: int | None = None):
     """List ride analyses in chronological order with activity context if available."""
     where = ""
