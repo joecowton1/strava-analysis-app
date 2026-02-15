@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react";
 import {
-  BarChart,
-  Bar,
+  LineChart,
+  Line,
   XAxis,
   YAxis,
   Tooltip,
@@ -216,7 +216,7 @@ export function Dashboard({ items }: { items: ReportListItem[] }) {
       ) : (
         <div className="dashChart">
           <ResponsiveContainer width="100%" height={320}>
-            <BarChart
+            <LineChart
               data={chartData}
               margin={{ top: 8, right: 12, bottom: 0, left: 0 }}
             >
@@ -254,16 +254,18 @@ export function Dashboard({ items }: { items: ReportListItem[] }) {
                 wrapperStyle={{ fontSize: 12, paddingTop: 8 }}
               />
               {years.map((yr, i) => (
-                <Bar
+                <Line
                   key={yr}
+                  type="monotone"
                   dataKey={String(yr)}
                   name={String(yr)}
-                  fill={YEAR_COLORS[i % YEAR_COLORS.length]}
-                  radius={[4, 4, 0, 0]}
-                  maxBarSize={48}
+                  stroke={YEAR_COLORS[i % YEAR_COLORS.length]}
+                  strokeWidth={2.5}
+                  dot={{ r: 4, strokeWidth: 0 }}
+                  activeDot={{ r: 6 }}
                 />
               ))}
-            </BarChart>
+            </LineChart>
           </ResponsiveContainer>
         </div>
       )}
