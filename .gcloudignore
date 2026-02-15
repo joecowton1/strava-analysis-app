@@ -18,4 +18,3 @@ node_modules/
 *.log
 pdfs/
 reports/
-frontend/

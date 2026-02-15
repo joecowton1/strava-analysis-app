@@ -62,20 +62,19 @@ def _format_year_data(rides: list[dict[str, Any]]) -> str:
             year = dt.year
             month = dt.month
             
-            if 1 <= month <= 5:  # Jan-May only
-                buckets[(year, month)].append(ride)
+            buckets[(year, month)].append(ride)
         except (ValueError, AttributeError):
             continue
     
     if not buckets:
-        return "No ride data available for January-May period."
+        return "No ride data available."
     
     # Sort years
     years = sorted(set(y for y, m in buckets.keys()))
-    months = ["Jan", "Feb", "Mar", "Apr", "May"]
+    months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
     
     output = []
-    output.append("# Fred Whitton Build-up Data (January - May)\n")
+    output.append("# Training Data by Year\n")
     
     for year in years:
         output.append(f"\n## {year}\n")

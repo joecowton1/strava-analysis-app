@@ -37,7 +37,7 @@ const MONTH_LABELS = [
   "Jan", "Feb", "Mar", "Apr", "May", "Jun",
   "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
 ];
-const FRED_WHITTON_MONTH = 5; // May
+const FRED_WHITTON_WEEK = 19; // May 9th is typically week 19
 const YEAR_COLORS = [
   "#3b82f6", // blue
   "#10b981", // green
@@ -51,10 +51,18 @@ const YEAR_COLORS = [
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
-function parseMonth(iso: string): { year: number; month: number } | null {
+function getWeekNumber(date: Date): { year: number; week: number } {
+  // Get the week number (1-52/53) for a given date
+  const firstDayOfYear = new Date(date.getFullYear(), 0, 1);
+  const pastDaysOfYear = (date.getTime() - firstDayOfYear.getTime()) / 86400000;
+  const week = Math.ceil((pastDaysOfYear + firstDayOfYear.getDay() + 1) / 7);
+  return { year: date.getFullYear(), week };
+}
+
+function parseWeek(iso: string): { year: number; week: number } | null {
   try {
     const d = new Date(iso);
-    return { year: d.getFullYear(), month: d.getMonth() + 1 }; // 1-indexed
+    return getWeekNumber(d);
   } catch {
     return null;
   }
@@ -122,30 +130,32 @@ export function Dashboard({ items }: { items: ReportListItem[] }) {
     };
   }, [rides]);
 
-  // ── Year-over-year monthly data ──────────────────────────────────────────
+  // ── Year-over-year weekly data ──────────────────────────────────────────
   const { chartData, years } = useMemo(() => {
-    // Group rides by year+month
+    // Group rides by year+week
     const buckets: Record<string, ReportListItem[]> = {};
     const yearSet = new Set<number>();
+    let maxWeek = 52;
 
     for (const r of rides) {
       if (!r.start_date) continue;
-      const parsed = parseMonth(r.start_date);
+      const parsed = parseWeek(r.start_date);
       if (!parsed) continue;
       yearSet.add(parsed.year);
-      const key = `${parsed.year}-${parsed.month}`;
+      maxWeek = Math.max(maxWeek, parsed.week);
+      const key = `${parsed.year}-${parsed.week}`;
       (buckets[key] ??= []).push(r);
     }
 
     const sortedYears = [...yearSet].sort();
 
-    // Build chart rows: one per month (1-12)
-    const data = MONTH_LABELS.map((label, i) => {
-      const month = i + 1;
-      const row: Record<string, string | number> = { month: label };
+    // Build chart rows: one per week (1-52 or 53)
+    const data = Array.from({ length: maxWeek }, (_, i) => {
+      const week = i + 1;
+      const row: Record<string, string | number> = { week: `W${week}` };
 
       for (const yr of sortedYears) {
-        const group = buckets[`${yr}-${month}`] ?? [];
+        const group = buckets[`${yr}-${week}`] ?? [];
         let val = 0;
 
         switch (metric) {
@@ -242,7 +252,7 @@ export function Dashboard({ items }: { items: ReportListItem[] }) {
 
       {/* ── Chart ── */}
       {years.length === 0 ? (
-        <div className="dashEmpty">No ride data for Jan-May yet</div>
+        <div className="dashEmpty">No ride data yet</div>
       ) : (
         <div className="dashChart">
           <ResponsiveContainer width="100%" height={320}>
@@ -251,10 +261,11 @@ export function Dashboard({ items }: { items: ReportListItem[] }) {
               margin={{ top: 24, right: 12, bottom: 0, left: 0 }}
             >
               <XAxis
-                dataKey="month"
+                dataKey="week"
                 tick={{ fontSize: 12, fill: "#6d6d78" }}
                 axisLine={{ stroke: "#e8e8ed" }}
                 tickLine={false}
+                interval={3}
               />
               <YAxis
                 tick={{ fontSize: 12, fill: "#6d6d78" }}
@@ -273,13 +284,12 @@ export function Dashboard({ items }: { items: ReportListItem[] }) {
                   [`${value ?? 0} ${activeOption.unit}`, ""]
                 }
               />
-              <ReferenceLine
-                x={MONTH_LABELS[FRED_WHITTON_MONTH - 1]}
-                stroke="#fc4c02"
-                strokeDasharray="4 4"
-                strokeWidth={1.5}
-                label={{ value: "Fred Whitton", fill: "#fc4c02", fontSize: 11, position: "top" }}
-              />
+                <ReferenceLine
+                  x={`W${FRED_WHITTON_WEEK}`}
+                  stroke="#fc4c02"
+                  strokeWidth={2}
+                  label={{ value: "Fred Whitton", fill: "#fc4c02", fontSize: 11, position: "top" }}
+                />
               <Legend
                 wrapperStyle={{ fontSize: 12, paddingTop: 8 }}
               />

@@ -3,6 +3,7 @@ import time
 import json
 import re
 import threading
+import signal
 from contextlib import contextmanager
 from pathlib import Path
 import requests
@@ -18,6 +19,29 @@ from .db import (
     USE_POSTGRES,
 )
 from .strava_client import StravaClient
+
+# Timeout decorator for API calls
+class TimeoutError(Exception):
+    pass
+
+def timeout_handler(signum, frame):
+    raise TimeoutError("Operation timed out")
+
+def with_timeout(seconds):
+    """Decorator to add timeout to a function call."""
+    def decorator(func):
+        def wrapper(*args, **kwargs):
+            # Set the signal handler and alarm
+            old_handler = signal.signal(signal.SIGALRM, timeout_handler)
+            signal.alarm(seconds)
+            try:
+                result = func(*args, **kwargs)
+            finally:
+                signal.alarm(0)  # Disable the alarm
+                signal.signal(signal.SIGALRM, old_handler)
+            return result
+        return wrapper
+    return decorator
 
 # Database placeholder helper - PostgreSQL uses %s, SQLite uses ?
 def _sql(query: str) -> str:
@@ -201,17 +225,45 @@ while True:
             access = _refresh_access_token_for_athlete(ev["owner_id"], tok["refresh_token"])
 
         # Fetch activity/streams; if we get a 401, refresh token and retry once.
+        # Add timeout to prevent hanging on slow/stuck API calls
         try:
-            act = client.get_activity(access, ev["object_id"])
-            streams = client.get_activity_streams(access, ev["object_id"])
+            @with_timeout(30)  # 30 second timeout
+            def fetch_activity_data():
+                act = client.get_activity(access, ev["object_id"])
+                streams = client.get_activity_streams(access, ev["object_id"])
+                return act, streams
+            
+            act, streams = fetch_activity_data()
+        except TimeoutError:
+            print(f"⚠ Strava API timeout for activity {ev['object_id']}, skipping", flush=True)
+            _execute_write(con, _sql("UPDATE webhook_events SET status='done' WHERE id=?"), (ev["id"],))
+            _commit(con)
+            continue
         except requests.HTTPError as http_err:
             status = getattr(http_err.response, "status_code", None)
             if status == 401:
-                access = _refresh_access_token_for_athlete(ev["owner_id"], tok["refresh_token"])
-                act = client.get_activity(access, ev["object_id"])
-                streams = client.get_activity_streams(access, ev["object_id"])
+                try:
+                    access = _refresh_access_token_for_athlete(ev["owner_id"], tok["refresh_token"])
+                    
+                    @with_timeout(30)
+                    def retry_fetch():
+                        act = client.get_activity(access, ev["object_id"])
+                        streams = client.get_activity_streams(access, ev["object_id"])
+                        return act, streams
+                    
+                    act, streams = retry_fetch()
+                except TimeoutError:
+                    print(f"⚠ Strava API timeout on retry for activity {ev['object_id']}, skipping", flush=True)
+                    _execute_write(con, _sql("UPDATE webhook_events SET status='done' WHERE id=?"), (ev["id"],))
+                    _commit(con)
+                    continue
             else:
                 raise
+        except Exception as e:
+            print(f"⚠ Error fetching activity {ev['object_id']}: {e}, skipping", flush=True)
+            _execute_write(con, _sql("UPDATE webhook_events SET status='done' WHERE id=?"), (ev["id"],))
+            _commit(con)
+            continue
 
         now = int(time.time())
         

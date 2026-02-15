@@ -5,7 +5,9 @@ steps:
       - '-t'
       - 'gcr.io/strava-analysis-483921/strava-frontend:latest'
       - '--build-arg'
-      - 'VITE_API_BASE_URL=https://strava-backend-ftxt43xj5a-nw.a.run.app'
-      - 'frontend/'
+      - 'VITE_API_BASE_URL=https://strava-backend-101613509672.europe-west2.run.app'
+      - '-f'
+      - 'frontend/Dockerfile'
+      - '.'
 images:
   - 'gcr.io/strava-analysis-483921/strava-frontend:latest'
