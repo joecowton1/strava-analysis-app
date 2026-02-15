@@ -370,7 +370,7 @@ def list_all_activities_chronological(con, athlete_id: int | None = None):
         SELECT
           a.activity_id,
           a.raw_json AS activity_raw_json,
-          a.ingested_at,
+          a.updated_at,
           ra.created_at AS analysis_created_at,
           ra.model,
           ra.prompt_version,
@@ -379,7 +379,7 @@ def list_all_activities_chronological(con, athlete_id: int | None = None):
         FROM activities a
         LEFT JOIN ride_analysis ra ON ra.activity_id = a.activity_id
         {where}
-        ORDER BY a.ingested_at ASC
+        ORDER BY a.updated_at ASC
     """
 
     if USE_POSTGRES:
@@ -409,7 +409,7 @@ def list_all_activities_chronological(con, athlete_id: int | None = None):
         out.append(
             {
                 "activity_id": r["activity_id"],
-                "created_at": r.get("analysis_created_at") or r.get("ingested_at"),
+                "created_at": r.get("analysis_created_at") or r.get("updated_at"),
                 "model": r.get("model"),
                 "prompt_version": r.get("prompt_version"),
                 "metrics": metrics,
