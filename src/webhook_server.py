@@ -352,3 +352,39 @@ def get_report(kind: str, activity_id: int, request: Request):
         raise HTTPException(status_code=400, detail="Invalid kind (expected 'ride' or 'progress')")
     finally:
         close_connection(con)
+
+
+@app.get("/api/fred-comparison")
+def fred_comparison(request: Request):
+    """Generate Fred Whitton build-up comparison across years."""
+    athlete_id = get_current_athlete(request)
+    con = connect(s.db_path)
+    try:
+        from .fred_comparison import generate_fred_comparison
+        
+        # Get all ride analyses with activity data
+        rides = list_ride_analyses_chronological(con, athlete_id=athlete_id)
+        
+        # Extract activity data for comparison
+        activity_data = []
+        for r in rides:
+            act = r.get("activity") or {}
+            if act.get("start_date"):
+                activity_data.append({
+                    "start_date": act.get("start_date"),
+                    "distance": act.get("distance"),
+                    "total_elevation_gain": act.get("total_elevation_gain"),
+                    "moving_time": act.get("moving_time"),
+                    "average_watts": act.get("average_watts"),
+                    "average_heartrate": act.get("average_heartrate"),
+                })
+        
+        comparison = generate_fred_comparison(activity_data)
+        
+        return {
+            "markdown": comparison["summary_md"],
+            "model": comparison["model"],
+            "prompt_version": comparison["prompt_version"],
+        }
+    finally:
+        close_connection(con)

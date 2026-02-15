@@ -1,4 +1,6 @@
-import { useMemo, useState } from "react";
+import { useMemo, useState, useEffect } from "react";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 import {
   LineChart,
   Line,
@@ -10,6 +12,7 @@ import {
   ReferenceLine,
 } from "recharts";
 import type { ReportListItem } from "../api";
+import { fetchFredComparison } from "../api";
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -61,11 +64,29 @@ function parseMonth(iso: string): { year: number; month: number } | null {
 
 export function Dashboard({ items }: { items: ReportListItem[] }) {
   const [metric, setMetric] = useState<MetricKey>("distance");
+  const [comparison, setComparison] = useState<string | null>(null);
+  const [loadingComparison, setLoadingComparison] = useState(false);
 
   const rides = useMemo(
     () => items.filter((it) => it.kind === "ride"),
     [items]
   );
+
+  // Load Fred comparison on mount
+  useEffect(() => {
+    (async () => {
+      setLoadingComparison(true);
+      try {
+        const data = await fetchFredComparison();
+        setComparison(data.markdown);
+      } catch (e) {
+        console.error("Failed to load Fred comparison:", e);
+        setComparison(null);
+      } finally {
+        setLoadingComparison(false);
+      }
+    })();
+  }, []);
 
   // ── Summary stats ────────────────────────────────────────────────────────
   const summary = useMemo(() => {
@@ -276,6 +297,21 @@ export function Dashboard({ items }: { items: ReportListItem[] }) {
               ))}
             </LineChart>
           </ResponsiveContainer>
+        </div>
+      )}
+
+      {/* ── Fred Comparison Summary ── */}
+      <div className="dashSection">
+        <h3 className="dashSectionTitle">Build-up Analysis</h3>
+      </div>
+      {loadingComparison && (
+        <div className="dashLoading">Loading comparison...</div>
+      )}
+      {comparison && (
+        <div className="dashComparison">
+          <ReactMarkdown remarkPlugins={[remarkGfm]}>
+            {comparison}
+          </ReactMarkdown>
         </div>
       )}
     </div>

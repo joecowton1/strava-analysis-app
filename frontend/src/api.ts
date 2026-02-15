@@ -106,3 +106,9 @@ export async function triggerBackfill(): Promise<{ queued: number; skipped: numb
   if (!r.ok) throw new Error(`Backfill failed (${r.status})`);
   return await r.json();
 }
+
+export async function fetchFredComparison(): Promise<{ markdown: string; model?: string; prompt_version?: string }> {
+  const r = await fetch(`${API_BASE}/api/fred-comparison`, { headers: authHeaders() });
+  if (!r.ok) throw new Error(`Failed to load Fred comparison (${r.status})`);
+  return await r.json();
+}
