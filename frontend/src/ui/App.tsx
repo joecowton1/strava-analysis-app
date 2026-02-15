@@ -13,6 +13,7 @@ import {
   type ReportKind,
   type User,
 } from "../api";
+import { Dashboard } from "./Dashboard";
 
 function fmtTs(ts: number) {
   try {
@@ -152,8 +153,6 @@ export function App() {
   const [error, setError] = useState<string | null>(null);
   const [loadingList, setLoadingList] = useState(false);
   const [loadingDetail, setLoadingDetail] = useState(false);
-  const [latestProgress, setLatestProgress] = useState<ReportDetailResponse | null>(null);
-  const [loadingProgress, setLoadingProgress] = useState(false);
 
   // Check auth on mount — extract token from URL if present (OAuth redirect)
   useEffect(() => {
@@ -189,32 +188,6 @@ export function App() {
       }
     })();
   }, [user]);
-
-  // Auto-load latest progress summary content
-  const latestProgressItem = useMemo(() => {
-    const all = items
-      .filter((it) => it.kind === "progress")
-      .sort((a, b) => (b.created_at || 0) - (a.created_at || 0));
-    return all[0] ?? null;
-  }, [items]);
-
-  useEffect(() => {
-    if (!latestProgressItem) {
-      setLatestProgress(null);
-      return;
-    }
-    (async () => {
-      setLoadingProgress(true);
-      try {
-        const d = await fetchReport(latestProgressItem.kind, latestProgressItem.activity_id);
-        setLatestProgress(d);
-      } catch {
-        // silently ignore — progress just won't show
-      } finally {
-        setLoadingProgress(false);
-      }
-    })();
-  }, [latestProgressItem?.activity_id]);
 
   useEffect(() => {
     (async () => {
@@ -359,35 +332,9 @@ export function App() {
           </div>
         </section>
 
-        {/* Latest progress summary */}
-        <section className="column">
-          <div className="columnHeader">
-            <h2 className="columnTitle">Latest Summary</h2>
-            {latestProgressItem && (
-              <span className="columnMeta">{fmtTs(latestProgressItem.created_at)}</span>
-            )}
-          </div>
-          <div className="columnBody">
-            {!latestProgressItem && !loadingList && (
-              <div className="emptyState">
-                <div className="emptyIcon">&#x1F4CA;</div>
-                <div className="emptyText">No summary yet</div>
-                <div className="emptyHint">
-                  A progress summary is generated alongside ride analyses
-                </div>
-              </div>
-            )}
-            {loadingProgress && (
-              <div className="muted loadingReport">Loading summary…</div>
-            )}
-            {latestProgress && (
-              <article className="markdown progressInline">
-                <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                  {latestProgress.markdown}
-                </ReactMarkdown>
-              </article>
-            )}
-          </div>
+        {/* Dashboard */}
+        <section className="column columnDash">
+          <Dashboard items={items} />
         </section>
       </div>
 

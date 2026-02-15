@@ -314,6 +314,8 @@ def list_reports(request: Request):
                 "model": r.get("model"), "prompt_version": r.get("prompt_version"),
                 "name": act.get("name"), "start_date": act.get("start_date"), "sport_type": act.get("sport_type"),
                 "distance": act.get("distance"), "total_elevation_gain": act.get("total_elevation_gain"),
+                "moving_time": act.get("moving_time"), "average_speed": act.get("average_speed"),
+                "average_watts": act.get("average_watts"), "average_heartrate": act.get("average_heartrate"),
             })
         for p in progress:
             created_at = int(p.get("created_at") or 0)

@@ -11,6 +11,10 @@ export type ReportListItem = {
   sport_type?: string | null;
   distance?: number | null;
   total_elevation_gain?: number | null;
+  moving_time?: number | null;
+  average_speed?: number | null;
+  average_watts?: number | null;
+  average_heartrate?: number | null;
 };
 
 export type ReportListResponse = { items: ReportListItem[] };
