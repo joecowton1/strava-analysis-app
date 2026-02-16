@@ -714,128 +714,103 @@ a:hover {
   overflow-y: auto;
 }
 .dashboard {
-  padding: 20px 24px 32px;
+  padding: 16px;
+  max-width: 900px;
+  margin: 0 auto;
   display: flex;
   flex-direction: column;
-  gap: 24px;
+  gap: 16px;
 }
 
-/* Summary metric cards */
-.dashCards {
-  display: flex;
-  gap: 10px;
-  flex-wrap: wrap;
-}
-.dashCard {
-  flex: 1;
-  min-width: 90px;
-  background: var(--panel);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  padding: 14px 16px;
-  text-align: center;
-}
-.dashCardValue {
-  font-size: 22px;
-  font-weight: 700;
-  color: var(--text);
-  line-height: 1.2;
-}
-.dashCardLabel {
-  font-size: 11px;
-  font-weight: 500;
-  color: var(--muted);
-  margin-top: 2px;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-}
-
-/* Section heading + toggles */
-.dashSection {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  flex-wrap: wrap;
-  gap: 10px;
-}
-.dashSectionTitle {
-  margin: 0;
-  font-size: 14px;
-  font-weight: 700;
-  color: var(--text);
-}
-.dashToggles {
-  display: flex;
-  gap: 4px;
-  background: var(--bg);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  padding: 3px;
-}
-.dashToggle {
-  padding: 5px 12px;
-  border-radius: var(--radius-sm);
-  font-size: 12px;
-  font-weight: 500;
-  color: var(--muted);
-  background: transparent;
-  transition: background 0.12s, color 0.12s;
-}
-.dashToggle:hover {
-  color: var(--text);
-}
-.dashToggle.active {
-  background: var(--accent);
-  color: #fff;
-}
-
-/* Chart area */
-.dashChart {
-  background: var(--panel);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  padding: 20px 16px 12px;
-}
-.dashEmpty {
-  text-align: center;
-  padding: 48px 16px;
-  color: var(--muted);
-  font-size: 14px;
-}
 .dashLoading {
   text-align: center;
-  padding: 24px 16px;
+  padding: 40px 16px;
   color: var(--muted);
-  font-size: 13px;
+  font-size: 14px;
 }
+
+.dashEmpty {
+  text-align: center;
+  padding: 40px 16px;
+  color: var(--muted);
+  font-size: 14px;
+}
+
 .dashComparison {
   background: var(--panel);
   border: 1px solid var(--border);
   border-radius: var(--radius);
-  padding: 20px 24px;
+  padding: 20px;
   font-size: 14px;
   line-height: 1.7;
 }
+
 .dashComparison h2 {
-  font-size: 16px;
+  font-size: 18px;
   font-weight: 700;
-  margin: 0 0 16px;
+  margin: 20px 0 12px;
   color: var(--text);
 }
+
+.dashComparison h2:first-child {
+  margin-top: 0;
+}
+
 .dashComparison h3 {
-  font-size: 14px;
+  font-size: 15px;
   font-weight: 600;
   margin: 16px 0 8px;
   color: var(--text);
 }
+
 .dashComparison ul {
   margin: 8px 0;
   padding-left: 20px;
 }
+
 .dashComparison li {
-  margin: 4px 0;
+  margin: 6px 0;
+  line-height: 1.6;
 }
+
+.dashComparison p {
+  margin: 8px 0;
+}
+
 .dashComparison strong {
   color: var(--text);
   font-weight: 600;
+}
+
+.dashComparison code {
+  background: var(--bg);
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-size: 0.9em;
+  border: 1px solid var(--border-light);
+}
+
+/* Mobile responsiveness for dashboard */
+@media (max-width: 768px) {
+  .dashboard {
+    padding: 12px;
+  }
+  
+  .dashComparison {
+    padding: 16px;
+    font-size: 13px;
+  }
+  
+  .dashComparison h2 {
+    font-size: 16px;
+    margin: 16px 0 10px;
+  }
+  
+  .dashComparison h3 {
+    font-size: 14px;
+  }
+  
+  .dashComparison ul {
+    padding-left: 18px;
+  }
 }
