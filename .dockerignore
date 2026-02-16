@@ -18,7 +18,6 @@ reports/
 README.md
 DEPLOYMENT.md
 deploy.sh
-frontend/
 node_modules/
 .vscode/
 .idea/
